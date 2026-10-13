@@ -774,7 +774,7 @@ void GameServer::HandleAuthenticationRequest(const ConnectionId_t aConnectionId,
     info.m_addrRemote.ToString(remoteAddress, 48, false);
 
     AuthenticationResponse serverResponse;
-    serverResponse.Version = BUILD_COMMIT;
+    serverResponse.Version = BUILD_BRANCH "@" BUILD_COMMIT;
 
     using RT = AuthenticationResponse::ResponseType;
     auto sendKick = [&](const RT type)
@@ -786,7 +786,7 @@ void GameServer::HandleAuthenticationRequest(const ConnectionId_t aConnectionId,
     };
 #if 1
     // to make our testing life a bit easier.
-    if (acRequest->Version != BUILD_COMMIT)
+    if (acRequest->Version != BUILD_BRANCH "@" BUILD_COMMIT)
     {
         spdlog::info("New player {:x} '{}' tried to connect with client {} - Version mismatch", aConnectionId, remoteAddress, acRequest->Version.c_str());
         sendKick(RT::kWrongVersion);

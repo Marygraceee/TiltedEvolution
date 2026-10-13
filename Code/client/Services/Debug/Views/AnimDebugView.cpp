@@ -95,9 +95,10 @@ void DebugService::DrawAnimDebugView()
     }
 
     BSAnimationGraphManager* pManager = nullptr;
-    pActor->animationGraphHolder.GetBSAnimationGraph(&pManager);
+    const bool cHasManager = pActor->animationGraphHolder.GetBSAnimationGraph(&pManager);
+    const BSAnimationGraphManagerPtr cManagerOwner{pManager};
 
-    if (!pManager)
+    if (!cHasManager || !pManager)
     {
         ImGui::End();
         s_varMap.clear();

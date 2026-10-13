@@ -10,12 +10,9 @@
 #include <Messages/RequestEquipmentChanges.h>
 #include <Messages/NotifyEquipmentChanges.h>
 #include <Messages/DrawWeaponRequest.h>
+#include <Messages/AssignObjectsResponse.h>
 
-#include <Setting.h>
-namespace
-{
-Console::Setting bEnableItemDrops{"Gameplay:bEnableItemDrops", "(Experimental) Syncs dropped items by players", false};
-}
+#include <limits>
 
 InventoryService::InventoryService(World& aWorld, entt::dispatcher& aDispatcher)
     : m_world(aWorld)
@@ -23,6 +20,51 @@ InventoryService::InventoryService(World& aWorld, entt::dispatcher& aDispatcher)
     m_inventoryChangeConnection = aDispatcher.sink<PacketEvent<RequestInventoryChanges>>().connect<&InventoryService::OnInventoryChanges>(this);
     m_equipmentChangeConnection = aDispatcher.sink<PacketEvent<RequestEquipmentChanges>>().connect<&InventoryService::OnEquipmentChanges>(this);
     m_drawWeaponConnection = aDispatcher.sink<PacketEvent<DrawWeaponRequest>>().connect<&InventoryService::OnWeaponDrawnRequest>(this);
+}
+
+void InventoryService::AppendDroppedItems(AssignObjectsResponse& aResponse, const CellIdComponent& acCell, const uint32_t aPlayerId) const noexcept
+{
+    const auto appendDropsAt = [this, &aResponse, aPlayerId](const DroppedItemCellKey& acCellKey)
+    {
+        const auto cellIt = m_droppedItemsByCell.find(acCellKey);
+        if (cellIt == m_droppedItemsByCell.end())
+            return;
+
+        for (const entt::entity entity : cellIt->second)
+        {
+            if (!m_world.valid(entity))
+                continue;
+
+            const auto& droppedItem = m_world.get<DroppedItemComponent>(entity);
+            ObjectData responseData = droppedItem.Data;
+            if (droppedItem.OriginPlayerId != aPlayerId)
+                responseData.LocalReferenceId = 0;
+            aResponse.Objects.push_back(std::move(responseData));
+        }
+    };
+
+    if (acCell.IsInInteriorCell())
+    {
+        appendDropsAt({acCell.Cell, {}, {}});
+        return;
+    }
+
+    const int32_t distanceToBorder = GridCellCoords::m_gridsToLoad / 2;
+    for (int32_t x = -distanceToBorder; x <= distanceToBorder; ++x)
+    {
+        const int64_t cellX = static_cast<int64_t>(acCell.CenterCoords.X) + x;
+        if (cellX < std::numeric_limits<int32_t>::min() || cellX > std::numeric_limits<int32_t>::max())
+            continue;
+
+        for (int32_t y = -distanceToBorder; y <= distanceToBorder; ++y)
+        {
+            const int64_t cellY = static_cast<int64_t>(acCell.CenterCoords.Y) + y;
+            if (cellY < std::numeric_limits<int32_t>::min() || cellY > std::numeric_limits<int32_t>::max())
+                continue;
+
+            appendDropsAt({{}, acCell.WorldSpaceId, {static_cast<int32_t>(cellX), static_cast<int32_t>(cellY)}});
+        }
+    }
 }
 
 void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChanges>& acMessage) noexcept
@@ -79,9 +121,152 @@ void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChan
     }
 
     auto& inventoryComponent = view.get<InventoryComponent>(*it);
+
+    auto droppedView = m_world.view<DroppedItemComponent>();
+    auto droppedIt = droppedView.end();
+    uint32_t dropId = message.DropId;
+    if (dropId == 0 && !message.Drop && message.ReferenceFormId != 0)
+    {
+        const uint64_t referenceKey = GetDroppedItemReferenceKey(acMessage.pPlayer->GetId(), message.ReferenceFormId);
+        const auto indexedEntity = m_droppedItemsByLocalReference.find(referenceKey);
+        if (indexedEntity != m_droppedItemsByLocalReference.end() && m_world.valid(indexedEntity->second))
+            droppedIt = droppedView.find(indexedEntity->second);
+        else if (indexedEntity != m_droppedItemsByLocalReference.end())
+            m_droppedItemsByLocalReference.erase(indexedEntity);
+
+        if (droppedIt != droppedView.end())
+            dropId = droppedView.get<DroppedItemComponent>(*droppedIt).Data.ServerId;
+    }
+
+    if (message.Drop && message.ReferenceFormId != 0)
+    {
+        const uint64_t referenceKey = GetDroppedItemReferenceKey(acMessage.pPlayer->GetId(), message.ReferenceFormId);
+        const auto indexedEntity = m_droppedItemsByLocalReference.find(referenceKey);
+        if (indexedEntity != m_droppedItemsByLocalReference.end())
+        {
+            if (m_world.valid(indexedEntity->second) && droppedView.find(indexedEntity->second) != droppedView.end())
+                return;
+            m_droppedItemsByLocalReference.erase(indexedEntity);
+        }
+    }
+
+    if (dropId != 0)
+    {
+        if (message.Item.Count <= 0)
+            return;
+
+        if (droppedIt == droppedView.end())
+        {
+            const auto indexedEntity = m_droppedItemEntities.find(dropId);
+            if (indexedEntity != m_droppedItemEntities.end() && m_world.valid(indexedEntity->second))
+                droppedIt = droppedView.find(indexedEntity->second);
+            else if (indexedEntity != m_droppedItemEntities.end())
+                m_droppedItemEntities.erase(indexedEntity);
+        }
+
+        if (droppedIt == droppedView.end())
+            return;
+
+        const auto& droppedItem = droppedView.get<DroppedItemComponent>(*droppedIt);
+        const auto& droppedData = droppedItem.Data;
+        if (droppedData.CurrentInventory.Entries.size() != 1)
+            return;
+
+        const auto& droppedEntry = droppedData.CurrentInventory.Entries.front();
+        const CellIdComponent droppedCell{droppedData.CellId, droppedData.WorldSpaceId, droppedData.CurrentCoords};
+        if (!droppedEntry.CanBeMerged(message.Item) || message.Item.Count > droppedEntry.Count || !acMessage.pPlayer->GetCellComponent().IsInRange(droppedCell, false))
+            return;
+    }
+
+    if (message.Drop && (message.Item.Count >= 0 || message.Item.Count == std::numeric_limits<int32_t>::min()))
+        return;
+
+    if (message.HasDroppedObject &&
+        (!message.Drop || !message.DroppedObject.IsDroppedItem || message.ReferenceFormId == 0 || message.DroppedObject.LocalReferenceId != message.ReferenceFormId))
+        return;
+
+    bool shouldCreateDroppedItem = message.Drop;
+    ObjectData droppedObject = message.DroppedObject;
+    if (shouldCreateDroppedItem)
+    {
+        if (!message.HasDroppedObject)
+        {
+            const auto* pCell = m_world.try_get<CellIdComponent>(*it);
+            const auto* pMovement = m_world.try_get<MovementComponent>(*it);
+            if (!pCell || !pMovement)
+                shouldCreateDroppedItem = false;
+            else
+            {
+                droppedObject.Id = message.Item.BaseId;
+                droppedObject.CellId = pCell->Cell;
+                droppedObject.WorldSpaceId = pCell->WorldSpaceId;
+                droppedObject.CurrentCoords = GridCellCoords::CalculateGridCellCoords(pMovement->Position.x, pMovement->Position.y);
+                droppedObject.Position = pMovement->Position;
+                droppedObject.Rotation.x = pMovement->Rotation.x;
+                droppedObject.Rotation.y = pMovement->Rotation.z;
+                droppedObject.LocalReferenceId = message.ReferenceFormId;
+                droppedObject.IsDroppedItem = true;
+                auto droppedEntry = message.Item;
+                droppedEntry.Count = -droppedEntry.Count;
+                droppedEntry.ExtraWorn = false;
+                droppedEntry.ExtraWornLeft = false;
+                droppedObject.CurrentInventory.Entries.push_back(std::move(droppedEntry));
+            }
+        }
+
+        if (shouldCreateDroppedItem && droppedObject.CurrentInventory.Entries.size() != 1)
+            return;
+
+        if (shouldCreateDroppedItem)
+        {
+            const auto& droppedEntry = droppedObject.CurrentInventory.Entries.front();
+            Inventory::Entry expectedDroppedEntry = message.Item;
+            expectedDroppedEntry.Count = -message.Item.Count;
+            expectedDroppedEntry.ExtraWorn = false;
+            expectedDroppedEntry.ExtraWornLeft = false;
+            if (droppedEntry.Count != -message.Item.Count || !droppedEntry.CanBeMerged(expectedDroppedEntry) || droppedObject.Id != message.Item.BaseId || !droppedObject.CellId ||
+                GridCellCoords::CalculateGridCellCoords(droppedObject.Position) != droppedObject.CurrentCoords)
+                return;
+
+            CellIdComponent droppedCell{droppedObject.CellId, droppedObject.WorldSpaceId, droppedObject.CurrentCoords};
+            if (!droppedCell.IsInRange(acMessage.pPlayer->GetCellComponent(), false))
+                return;
+        }
+    }
+
     inventoryComponent.Content.AddOrRemoveEntry(message.Item);
 
-    if (!message.UpdateClients && !isRemoteNpcInteraction)
+    if (dropId != 0)
+    {
+        auto& droppedData = droppedView.get<DroppedItemComponent>(*droppedIt).Data;
+        auto& droppedEntry = droppedData.CurrentInventory.Entries.front();
+        droppedEntry.Count -= message.Item.Count;
+    }
+
+    entt::entity createdDropEntity = entt::null;
+    ObjectData createdDropData{};
+    if (shouldCreateDroppedItem)
+    {
+        createdDropData = std::move(droppedObject);
+        do
+        {
+            createdDropData.ServerId = m_nextDroppedItemId++;
+            if (m_nextDroppedItemId == 0)
+                m_nextDroppedItemId = 1;
+        } while (createdDropData.ServerId == 0 || m_droppedItemEntities.contains(createdDropData.ServerId));
+        createdDropData.IsDroppedItem = true;
+
+        createdDropEntity = m_world.create();
+        m_world.emplace<DroppedItemComponent>(createdDropEntity, createdDropData, acMessage.pPlayer->GetId());
+        m_world.emplace<CellIdComponent>(createdDropEntity, createdDropData.CellId, createdDropData.WorldSpaceId, createdDropData.CurrentCoords);
+        m_droppedItemEntities.emplace(createdDropData.ServerId, createdDropEntity);
+        if (createdDropData.LocalReferenceId != 0)
+            m_droppedItemsByLocalReference.emplace(GetDroppedItemReferenceKey(acMessage.pPlayer->GetId(), createdDropData.LocalReferenceId), createdDropEntity);
+        m_droppedItemsByCell[DroppedItemCellKey{createdDropData.CellId, createdDropData.WorldSpaceId, createdDropData.CurrentCoords}].insert(createdDropEntity);
+    }
+
+    const bool shouldNotifyDroppedItem = dropId != 0 || shouldCreateDroppedItem;
+    if (!message.UpdateClients && !isRemoteNpcInteraction && !shouldNotifyDroppedItem)
         return;
 
     NotifyInventoryChanges notify;
@@ -89,7 +274,67 @@ void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChan
     notify.OwnershipEpoch = message.OwnershipEpoch;
     notify.Item = message.Item;
 
-    notify.Drop = bEnableItemDrops && !isRemoteNpcInteraction ? message.Drop : false;
+    notify.DropId = dropId;
+    notify.HasDroppedObject = shouldNotifyDroppedItem;
+    if (shouldCreateDroppedItem)
+        notify.DroppedObject = createdDropData;
+    else if (dropId != 0 && droppedIt != droppedView.end())
+    {
+        auto& droppedData = droppedView.get<DroppedItemComponent>(*droppedIt).Data;
+        notify.DroppedObject = droppedData;
+        if (droppedData.CurrentInventory.Entries.front().Count <= 0)
+            notify.DroppedObject.CurrentInventory.Entries.front().Count = 0;
+    }
+
+    notify.Drop = message.Drop;
+
+    if (shouldCreateDroppedItem)
+    {
+        NotifyInventoryChanges peerNotify = notify;
+        peerNotify.DroppedObject.LocalReferenceId = 0;
+        if (!GameServer::Get()->SendToPlayersInRange(peerNotify, createdDropEntity, acMessage.GetSender()))
+            spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
+
+        NotifyInventoryChanges senderNotify = notify;
+        senderNotify.Item.Count = 0;
+        acMessage.pPlayer->Send(senderNotify);
+        return;
+    }
+
+    if (dropId != 0 && droppedIt != droppedView.end())
+    {
+        const entt::entity dropEntity = *droppedIt;
+        auto& droppedItem = droppedView.get<DroppedItemComponent>(dropEntity);
+        NotifyInventoryChanges peerNotify = notify;
+        peerNotify.DroppedObject.LocalReferenceId = 0;
+        if (!GameServer::Get()->SendToPlayersInRange(peerNotify, dropEntity, acMessage.GetSender()))
+            spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
+
+        NotifyInventoryChanges senderNotify = notify;
+        senderNotify.Item.Count = 0;
+        senderNotify.DroppedObject.LocalReferenceId = 0;
+        if (droppedItem.OriginPlayerId == acMessage.pPlayer->GetId() && droppedItem.Data.LocalReferenceId == message.ReferenceFormId)
+            senderNotify.DroppedObject.LocalReferenceId = droppedItem.Data.LocalReferenceId;
+        acMessage.pPlayer->Send(senderNotify);
+
+        if (droppedItem.Data.CurrentInventory.Entries.front().Count <= 0)
+        {
+            const DroppedItemCellKey cellKey{droppedItem.Data.CellId, droppedItem.Data.WorldSpaceId, droppedItem.Data.CurrentCoords};
+            const auto cellIt = m_droppedItemsByCell.find(cellKey);
+            if (cellIt != m_droppedItemsByCell.end())
+            {
+                cellIt->second.erase(dropEntity);
+                if (cellIt->second.empty())
+                    m_droppedItemsByCell.erase(cellIt);
+            }
+
+            m_droppedItemEntities.erase(dropId);
+            if (droppedItem.Data.LocalReferenceId != 0)
+                m_droppedItemsByLocalReference.erase(GetDroppedItemReferenceKey(droppedItem.OriginPlayerId, droppedItem.Data.LocalReferenceId));
+            m_world.destroy(dropEntity);
+        }
+        return;
+    }
 
     const entt::entity cOrigin = static_cast<entt::entity>(message.ServerId);
     if (!GameServer::Get()->SendToPlayersInRange(notify, cOrigin, acMessage.GetSender()))

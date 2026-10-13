@@ -1,8 +1,12 @@
 #include <Messages/AssignObjectsResponse.h>
+#include <TiltedCore/Serialization.hpp>
 
 void AssignObjectsResponse::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter) const noexcept
 {
-    aWriter.WriteBits(Objects.size() & 0xFF, 8);
+    CellId.Serialize(aWriter);
+    WorldSpaceId.Serialize(aWriter);
+    CurrentCoords.Serialize(aWriter);
+    Serialization::WriteVarInt(aWriter, Objects.size());
 
     for (const auto& object : Objects)
     {
@@ -14,8 +18,11 @@ void AssignObjectsResponse::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReade
 {
     ServerMessage::DeserializeRaw(aReader);
 
-    uint64_t count = 0;
-    aReader.ReadBits(count, 8);
+    CellId.Deserialize(aReader);
+    WorldSpaceId.Deserialize(aReader);
+    CurrentCoords.Deserialize(aReader);
+
+    const uint64_t count = Serialization::ReadVarInt(aReader);
 
     Objects.resize(count);
 

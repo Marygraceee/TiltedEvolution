@@ -195,7 +195,9 @@ using TiltedPhoques::Serialization;
 void TESObjectREFR::SaveAnimationVariables(AnimationVariables& aVariables) const noexcept
 {
     BSAnimationGraphManager* pManager = nullptr;
-    if (animationGraphHolder.GetBSAnimationGraph(&pManager))
+    const bool cHasManager = animationGraphHolder.GetBSAnimationGraph(&pManager);
+    const BSAnimationGraphManagerPtr cManagerOwner{pManager};
+    if (cHasManager && pManager)
     {
         BSScopedLock<BSRecursiveLock> _{pManager->lock};
 
@@ -264,15 +266,15 @@ void TESObjectREFR::SaveAnimationVariables(AnimationVariables& aVariables) const
                     aVariables.Integers[i] = *reinterpret_cast<uint32_t*>(&pVariableSet->data[idx]);
             }
         }
-
-        pManager->Release();
     }
 }
 
 void TESObjectREFR::LoadAnimationVariables(const AnimationVariables& aVariables) const noexcept
 {
     BSAnimationGraphManager* pManager = nullptr;
-    if (animationGraphHolder.GetBSAnimationGraph(&pManager))
+    const bool cHasManager = animationGraphHolder.GetBSAnimationGraph(&pManager);
+    const BSAnimationGraphManagerPtr cManagerOwner{pManager};
+    if (cHasManager && pManager)
     {
         BSScopedLock<BSRecursiveLock> _{pManager->lock};
 
@@ -340,8 +342,6 @@ void TESObjectREFR::LoadAnimationVariables(const AnimationVariables& aVariables)
                 }
             }
         }
-
-        pManager->Release();
     }
 }
 
@@ -1141,6 +1141,9 @@ void TP_MAKE_THISCALL(HookRotateZ, TESObjectREFR, float aAngle)
 void TP_MAKE_THISCALL(HookLockChange, TESObjectREFR)
 {
     TiltedPhoques::ThisCall(RealLockChange, apThis);
+    if (ScopedLockOverride::IsOverriden())
+        return;
+
     const auto* pLock = apThis->GetLock();
     if(pLock)
         World::Get().GetRunner().Trigger(LockChangeEvent(apThis->formID, pLock->IsLocked(), pLock->lockLevel));

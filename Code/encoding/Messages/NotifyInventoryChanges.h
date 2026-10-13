@@ -3,6 +3,7 @@
 #include "Message.h"
 
 #include <Structs/Inventory.h>
+#include <Structs/ObjectData.h>
 
 struct NotifyInventoryChanges final : ServerMessage
 {
@@ -18,11 +19,15 @@ struct NotifyInventoryChanges final : ServerMessage
 
     bool operator==(const NotifyInventoryChanges& acRhs) const noexcept
     {
-        return GetOpcode() == acRhs.GetOpcode() && ServerId == acRhs.ServerId && OwnershipEpoch == acRhs.OwnershipEpoch && Item == acRhs.Item && Drop == acRhs.Drop;
+        return GetOpcode() == acRhs.GetOpcode() && ServerId == acRhs.ServerId && OwnershipEpoch == acRhs.OwnershipEpoch && Item == acRhs.Item && DropId == acRhs.DropId &&
+               DroppedObject == acRhs.DroppedObject && HasDroppedObject == acRhs.HasDroppedObject && Drop == acRhs.Drop;
     }
 
     uint32_t ServerId{};
     uint32_t OwnershipEpoch{};
     Inventory::Entry Item{};
+    uint32_t DropId{};
+    ObjectData DroppedObject{};
+    bool HasDroppedObject{};
     bool Drop = false;
 };

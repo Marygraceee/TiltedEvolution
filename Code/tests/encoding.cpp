@@ -3,6 +3,8 @@
 #include <TiltedCore/Buffer.hpp>
 #include <TiltedCore/Serialization.hpp>
 
+#include <cstdint>
+#include <limits>
 #include <optional>
 
 #include <glm/vec2.hpp>
@@ -15,12 +17,36 @@
 
 #include <Messages/ClientMessageFactory.h>
 #include <Messages/ServerMessageFactory.h>
+#include <Messages/AssignObjectsResponse.h>
+#include <Messages/AssignObjectsRequest.h>
+#include <Messages/CharacterSpawnRequest.h>
+#include <Messages/RequestInventoryChanges.h>
+#include <Messages/RequestQuestSnapshot.h>
+#include <Messages/NotifyInventoryChanges.h>
+#include <Messages/NotifyQuestSnapshot.h>
 #include <Structs/Vector2_NetQuantize.h>
+#include <Structs/GridCellCoords.h>
+#include <Structs/ObjectData.h>
 
 #include <TiltedCore/Math.hpp>
 #include <TiltedCore/Platform.hpp>
 
 using namespace TiltedPhoques;
+
+TEST_CASE("Grid cell ranges handle integer boundaries", "[encoding.grid_cell]")
+{
+    const int32_t minimum = std::numeric_limits<int32_t>::min();
+    const int32_t maximum = std::numeric_limits<int32_t>::max();
+    const GridCellCoords minimumCell{minimum, minimum};
+    const GridCellCoords maximumCell{maximum, maximum};
+
+    REQUIRE(GridCellCoords::IsCellInGridCell({minimum + 2, minimum + 2}, minimumCell, false));
+    REQUIRE(GridCellCoords::IsCellInGridCell({maximum - 2, maximum - 2}, maximumCell, false));
+    REQUIRE_FALSE(GridCellCoords::IsCellInGridCell({maximum, minimum}, minimumCell, false));
+    REQUIRE(GridCellCoords::AreGridCellsOverlapping(minimumCell, {minimum + 4, minimum + 4}));
+    REQUIRE(GridCellCoords::AreGridCellsOverlapping(maximumCell, {maximum - 4, maximum - 4}));
+    REQUIRE_FALSE(GridCellCoords::AreGridCellsOverlapping(minimumCell, {maximum, minimum}));
+}
 
 TEST_CASE("Encoding factory", "[encoding.factory]")
 {
@@ -63,6 +89,190 @@ TEST_CASE("Encoding factory", "[encoding.factory]")
         auto pRequest = CastUnique<PartyAcceptInviteRequest>(std::move(pMessage));
         REQUIRE(pRequest->InviterId == request.InviterId);
     }
+}
+
+TEST_CASE("Dropped item assignment encoding", "[encoding.dropped_item]")
+{
+    ObjectData droppedItem{};
+    droppedItem.ServerId = 17;
+    droppedItem.Id = GameId{4, 900};
+    droppedItem.CellId = GameId{0, 0x1234};
+    droppedItem.WorldSpaceId = GameId{0, 0x5678};
+    droppedItem.CurrentCoords = {12, -7};
+    droppedItem.Position = glm::vec3{140.5f, 230.25f, 40.f};
+    droppedItem.Rotation.x = 1.25f;
+    droppedItem.Rotation.y = 2.5f;
+    droppedItem.LocalReferenceId = 0xFF001234;
+    droppedItem.IsDroppedItem = true;
+
+    Inventory::Entry item{};
+    item.BaseId = droppedItem.Id;
+    item.Count = 3;
+    droppedItem.CurrentInventory.Entries.push_back(item);
+
+    AssignObjectsResponse response{};
+    response.CellId = droppedItem.CellId;
+    response.WorldSpaceId = droppedItem.WorldSpaceId;
+    response.CurrentCoords = droppedItem.CurrentCoords;
+    response.Objects.push_back(droppedItem);
+
+    Buffer buff(1000);
+    Buffer::Writer writer(&buff);
+    response.Serialize(writer);
+
+    Buffer::Reader reader(&buff);
+    const ServerMessageFactory factory;
+    auto message = factory.Extract(reader);
+    REQUIRE(message);
+
+    auto decoded = CastUnique<AssignObjectsResponse>(std::move(message));
+    REQUIRE(decoded->Objects.size() == 1);
+    REQUIRE(decoded->Objects.front() == droppedItem);
+
+    RequestInventoryChanges request{};
+    request.ServerId = 11;
+    request.OwnershipEpoch = 5;
+    request.Item = item;
+    request.Item.Count = -item.Count;
+    request.ReferenceFormId = droppedItem.LocalReferenceId;
+    request.DroppedObject = droppedItem;
+    request.HasDroppedObject = true;
+    request.Drop = true;
+
+    Buffer requestBuffer(1000);
+    Buffer::Writer requestWriter(&requestBuffer);
+    request.Serialize(requestWriter);
+
+    Buffer::Reader requestReader(&requestBuffer);
+    const ClientMessageFactory clientFactory;
+    auto requestMessage = clientFactory.Extract(requestReader);
+    REQUIRE(requestMessage);
+    auto decodedRequest = CastUnique<RequestInventoryChanges>(std::move(requestMessage));
+    REQUIRE(*decodedRequest == request);
+
+    NotifyInventoryChanges notify{};
+    notify.ServerId = 11;
+    notify.OwnershipEpoch = 5;
+    notify.Item = request.Item;
+    notify.DroppedObject = droppedItem;
+    notify.HasDroppedObject = true;
+    notify.Drop = true;
+
+    Buffer notifyBuffer(1000);
+    Buffer::Writer notifyWriter(&notifyBuffer);
+    notify.Serialize(notifyWriter);
+
+    Buffer::Reader notifyReader(&notifyBuffer);
+    auto notifyMessage = factory.Extract(notifyReader);
+    REQUIRE(notifyMessage);
+    auto decodedNotify = CastUnique<NotifyInventoryChanges>(std::move(notifyMessage));
+    REQUIRE(*decodedNotify == notify);
+}
+
+TEST_CASE("Dropped item assignment encoding supports a full session snapshot", "[encoding.dropped_item]")
+{
+    AssignObjectsResponse response{};
+    for (uint32_t dropId = 1; dropId <= 256; ++dropId)
+    {
+        ObjectData droppedItem{};
+        droppedItem.ServerId = dropId;
+        droppedItem.Id = GameId{0, dropId};
+        droppedItem.IsDroppedItem = true;
+        response.Objects.push_back(std::move(droppedItem));
+    }
+
+    Buffer buff(100000);
+    Buffer::Writer writer(&buff);
+    response.Serialize(writer);
+
+    Buffer::Reader reader(&buff);
+    const ServerMessageFactory factory;
+    auto message = factory.Extract(reader);
+    REQUIRE(message);
+
+    auto decoded = CastUnique<AssignObjectsResponse>(std::move(message));
+    REQUIRE(decoded->Objects.size() == 256);
+    REQUIRE(decoded->Objects.back().ServerId == 256);
+}
+
+TEST_CASE("Object assignment request encoding supports a full cell", "[encoding.objects]")
+{
+    AssignObjectsRequest request{};
+    request.CellId = GameId{0, 0x1234};
+    request.WorldSpaceId = GameId{0, 0x5678};
+    request.CurrentCoords = {12, -7};
+    for (uint32_t objectId = 1; objectId <= 256; ++objectId)
+    {
+        ObjectData object{};
+        object.Id = GameId{0, objectId};
+        request.Objects.push_back(std::move(object));
+    }
+
+    Buffer buff(100000);
+    Buffer::Writer writer(&buff);
+    request.Serialize(writer);
+
+    Buffer::Reader reader(&buff);
+    const ClientMessageFactory factory;
+    auto message = factory.Extract(reader);
+    REQUIRE(message);
+
+    auto decoded = CastUnique<AssignObjectsRequest>(std::move(message));
+    REQUIRE(*decoded == request);
+    REQUIRE(decoded->Objects.size() == 256);
+}
+
+TEST_CASE("Character spawn encoding preserves dragon range", "[encoding.character]")
+{
+    CharacterSpawnRequest request{};
+    request.ServerId = 17;
+    request.OwnershipEpoch = 2;
+    request.IsDragon = true;
+
+    Buffer buff(10000);
+    Buffer::Writer writer(&buff);
+    request.Serialize(writer);
+
+    Buffer::Reader reader(&buff);
+    const ServerMessageFactory factory;
+    auto message = factory.Extract(reader);
+    REQUIRE(message);
+
+    auto decoded = CastUnique<CharacterSpawnRequest>(std::move(message));
+    REQUIRE(decoded->IsDragon);
+    REQUIRE(*decoded == request);
+}
+
+TEST_CASE("Quest snapshot encoding", "[encoding.quest_snapshot]")
+{
+    RequestQuestSnapshot request{};
+    request.QuestContent.Entries.push_back({GameId{2, 0x1234}, 25});
+    request.QuestContent.Entries.push_back({GameId{3, 0x5678}, 40});
+
+    Buffer requestBuffer(1000);
+    Buffer::Writer requestWriter(&requestBuffer);
+    request.Serialize(requestWriter);
+
+    Buffer::Reader requestReader(&requestBuffer);
+    const ClientMessageFactory clientFactory;
+    auto requestMessage = clientFactory.Extract(requestReader);
+    REQUIRE(requestMessage);
+    auto decodedRequest = CastUnique<RequestQuestSnapshot>(std::move(requestMessage));
+    REQUIRE(*decodedRequest == request);
+
+    NotifyQuestSnapshot notify{};
+    notify.QuestContent = request.QuestContent;
+
+    Buffer notifyBuffer(1000);
+    Buffer::Writer notifyWriter(&notifyBuffer);
+    notify.Serialize(notifyWriter);
+
+    Buffer::Reader notifyReader(&notifyBuffer);
+    const ServerMessageFactory serverFactory;
+    auto notifyMessage = serverFactory.Extract(notifyReader);
+    REQUIRE(notifyMessage);
+    auto decodedNotify = CastUnique<NotifyQuestSnapshot>(std::move(notifyMessage));
+    REQUIRE(*decodedNotify == notify);
 }
 
 TEST_CASE("Static structures", "[encoding.static]")

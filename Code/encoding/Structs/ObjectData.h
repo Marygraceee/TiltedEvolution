@@ -4,6 +4,8 @@
 #include <Structs/LockData.h>
 #include <Structs/Inventory.h>
 #include <Structs/GridCellCoords.h>
+#include <Structs/Vector3_NetQuantize.h>
+#include <Structs/Rotator2_NetQuantize.h>
 
 struct ObjectData
 {
@@ -21,7 +23,11 @@ struct ObjectData
     GameId CellId{};
     GameId WorldSpaceId{};
     GridCellCoords CurrentCoords{};
+    Vector3_NetQuantize Position{};
+    Rotator2_NetQuantize Rotation{};
     LockData CurrentLockData{};
     Inventory CurrentInventory{};
+    uint32_t LocalReferenceId{};
+    bool IsDroppedItem{};
     bool IsSenderFirst{};
 };

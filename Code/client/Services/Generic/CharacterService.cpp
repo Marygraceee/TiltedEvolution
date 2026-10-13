@@ -512,13 +512,12 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
     Actor* pActor = nullptr;
 
     std::optional<entt::entity> entity;
+    bool shouldSetupFaceGen = false;
 
     // Custom forms
     if (acMessage.FormId == GameId{})
     {
         TESNPC* pNpc = nullptr;
-
-        entity = m_world.create();
 
         if (acMessage.BaseId != GameId{})
         {
@@ -541,7 +540,7 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
         {
             // Players and npcs with temporary ref ids and base ids (usually random events)
             pNpc = TESNPC::Create(acMessage.AppearanceBuffer, acMessage.ChangeFlags);
-            FaceGenSystem::Setup(m_world, *entity, acMessage.FaceTints);
+            shouldSetupFaceGen = true;
         }
 
         pActor = Actor::Create(pNpc);
@@ -589,6 +588,13 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
     {
         spdlog::error("Actor object {:X} could not be created.", acMessage.ServerId);
         return;
+    }
+
+    if (acMessage.FormId == GameId{})
+    {
+        entity = m_world.create();
+        if (shouldSetupFaceGen)
+            FaceGenSystem::Setup(m_world, *entity, acMessage.FaceTints);
     }
 
     spdlog::info("CharacterSpawnRequest, server id: {:X}, form id: {:X}, dead: {}", acMessage.ServerId, pActor->formID, acMessage.IsDead);
@@ -1975,9 +1981,10 @@ void CharacterService::RunSpawnUpdates() const noexcept
             const auto characterCoords = GridCellCoords::CalculateGridCellCoords(characterX, characterY);
             const TES* pTES = TES::Get();
             const auto playerCoords = GridCellCoords(pTES->centerGridX, pTES->centerGridY);
+            const auto& spawnRequest = invisibleView.get<WaitingFor3D>(entity).SpawnRequest;
 
             // TODO(cosideci): IsDragon probably shouldn't be straight up false here.
-            if (GridCellCoords::IsCellInGridCell(characterCoords, playerCoords, false))
+            if (GridCellCoords::IsCellInGridCell(characterCoords, playerCoords, spawnRequest.IsDragon))
             {
                 auto* pActor = Cast<Actor>(TESForm::GetById(remoteComponent.CachedRefId));
                 if (!pActor)

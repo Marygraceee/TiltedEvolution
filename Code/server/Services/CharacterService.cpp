@@ -82,6 +82,7 @@ void CharacterService::Serialize(World& aRegistry, entt::entity aEntity, Charact
     apSpawnRequest->IsPlayer = characterComponent.IsPlayer();
     apSpawnRequest->IsWeaponDrawn = characterComponent.IsWeaponDrawn();
     apSpawnRequest->IsPlayerSummon = characterComponent.IsPlayerSummon();
+    apSpawnRequest->IsDragon = characterComponent.IsDragon();
     apSpawnRequest->PlayerId = characterComponent.PlayerId;
 
     const auto* pOwnerComponent = aRegistry.try_get<OwnerComponent>(aEntity);
@@ -392,6 +393,7 @@ void CharacterService::OnReferencesMoveRequest(const PacketEvent<ClientReference
         auto& movementComponent = view.get<MovementComponent>(*itor);
         auto& cellIdComponent = view.get<CellIdComponent>(*itor);
         const auto& characterComponent = view.get<CharacterComponent>(*itor);
+        const CellIdComponent previousCell = cellIdComponent;
 
         movementComponent.Tick = message.Tick;
         movementComponent.Position = movement.Position;
@@ -403,9 +405,37 @@ void CharacterService::OnReferencesMoveRequest(const PacketEvent<ClientReference
         cellIdComponent.WorldSpaceId = movement.WorldSpaceId;
         cellIdComponent.CenterCoords = GridCellCoords::CalculateGridCellCoords(movement.Position.x, movement.Position.y);
 
+        CharacterSpawnRequest spawnMessage;
+        NotifyRemoveCharacter removeMessage;
+        removeMessage.ServerId = id;
+        bool spawnMessageReady = false;
+
         for (auto pPlayer : m_world.GetPlayerManager())
         {
-            if (pPlayer == acMessage.pPlayer || !cellIdComponent.IsInRange(pPlayer->GetCellComponent(), characterComponent.IsDragon()))
+            if (pPlayer == acMessage.pPlayer)
+                continue;
+
+            const bool wasInRange = previousCell.IsInRange(pPlayer->GetCellComponent(), characterComponent.IsDragon());
+            const bool isInRange = cellIdComponent.IsInRange(pPlayer->GetCellComponent(), characterComponent.IsDragon());
+            if (!characterComponent.IsPlayer() && wasInRange && !isInRange)
+            {
+                pPlayer->Send(removeMessage);
+                continue;
+            }
+
+            if (!characterComponent.IsPlayer() && !wasInRange && isInRange)
+            {
+                if (!spawnMessageReady)
+                {
+                    Serialize(m_world, *itor, &spawnMessage);
+                    spawnMessageReady = true;
+                }
+
+                pPlayer->Send(spawnMessage);
+                continue;
+            }
+
+            if (!isInRange)
                 continue;
 
             auto& relay = messages[pPlayer];

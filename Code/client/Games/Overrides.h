@@ -34,6 +34,9 @@ struct Activate
 struct Inventory
 {
 };
+struct Lock
+{
+};
 struct ExtraData
 {
 };
@@ -52,6 +55,7 @@ using ScopedSaveLoadOverride = ScopedOverride<details::SaveLoad>;
 using ScopedExperienceOverride = ScopedOverride<details::Experience>;
 using ScopedActivateOverride = ScopedOverride<details::Activate>;
 using ScopedInventoryOverride = ScopedOverride<details::Inventory>;
+using ScopedLockOverride = ScopedOverride<details::Lock>;
 using ScopedExtraDataOverride = ScopedOverride<details::ExtraData>;
 using ScopedQuestOverride = ScopedOverride<details::Quest>;
 using ScopedSpellCastOverride = ScopedOverride<details::SpellCast>;

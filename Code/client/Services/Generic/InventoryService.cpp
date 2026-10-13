@@ -8,10 +8,12 @@
 #include <Messages/NotifyEquipmentChanges.h>
 #include <Messages/DrawWeaponRequest.h>
 #include <Messages/NotifyDrawWeapon.h>
+#include <Messages/AssignObjectsResponse.h>
 
 #include <Events/UpdateEvent.h>
 #include <Events/InventoryChangeEvent.h>
 #include <Events/EquipmentChangeEvent.h>
+#include <Events/DisconnectedEvent.h>
 
 #include <World.h>
 #include <Games/Skyrim/Interface/UI.h>
@@ -37,6 +39,8 @@ InventoryService::InventoryService(World& aWorld, entt::dispatcher& aDispatcher,
     m_equipmentConnection = m_dispatcher.sink<EquipmentChangeEvent>().connect<&InventoryService::OnEquipmentChangeEvent>(this);
     m_inventoryChangeConnection = m_dispatcher.sink<NotifyInventoryChanges>().connect<&InventoryService::OnNotifyInventoryChanges>(this);
     m_equipmentChangeConnection = m_dispatcher.sink<NotifyEquipmentChanges>().connect<&InventoryService::OnNotifyEquipmentChanges>(this);
+    m_assignObjectsConnection = m_dispatcher.sink<AssignObjectsResponse>().connect<&InventoryService::OnAssignObjectsResponse>(this);
+    m_disconnectedConnection = m_dispatcher.sink<DisconnectedEvent>().connect<&InventoryService::OnDisconnected>(this);
 }
 
 void InventoryService::OnUpdate(const UpdateEvent& acUpdateEvent) noexcept
@@ -93,6 +97,53 @@ void InventoryService::OnInventoryChangeEvent(const InventoryChangeEvent& acEven
     request.Item = acEvent.Item;
     request.Drop = acEvent.Drop;
     request.UpdateClients = acEvent.UpdateClients;
+    request.ReferenceFormId = acEvent.ReferenceFormId;
+
+    if (acEvent.ReferenceFormId != 0)
+    {
+        const auto droppedIt = m_droppedFormToServerId.find(acEvent.ReferenceFormId);
+        if (droppedIt != m_droppedFormToServerId.end())
+        {
+            request.DropId = droppedIt->second;
+        }
+        else if (!acEvent.Drop && m_pendingLocalDropForms.contains(acEvent.ReferenceFormId))
+            m_pendingLocalDropPickups.insert(acEvent.ReferenceFormId);
+        else if (acEvent.Drop)
+        {
+            TESObjectREFR* pDroppedObject = Cast<TESObjectREFR>(TESForm::GetById(acEvent.ReferenceFormId));
+            TESObjectCELL* pCell = pDroppedObject ? pDroppedObject->GetParentCellEx() : nullptr;
+            if (pDroppedObject && pCell && pDroppedObject->baseForm && m_world.GetModSystem().GetServerModId(pDroppedObject->baseForm->formID, request.DroppedObject.Id) &&
+                m_world.GetModSystem().GetServerModId(pCell->formID, request.DroppedObject.CellId))
+            {
+                bool worldSpaceIsKnown = true;
+                if (TESWorldSpace* pWorldSpace = pDroppedObject->GetWorldSpace())
+                {
+                    if (!m_world.GetModSystem().GetServerModId(pWorldSpace->formID, request.DroppedObject.WorldSpaceId))
+                        worldSpaceIsKnown = false;
+                }
+
+                if (worldSpaceIsKnown)
+                {
+                    request.DroppedObject.CurrentCoords = GridCellCoords::CalculateGridCellCoords(pDroppedObject->position.x, pDroppedObject->position.y);
+                    request.DroppedObject.Position = pDroppedObject->position;
+                    request.DroppedObject.Rotation.x = pDroppedObject->rotation.x;
+                    request.DroppedObject.Rotation.y = pDroppedObject->rotation.z;
+                    request.DroppedObject.LocalReferenceId = pDroppedObject->formID;
+                    request.DroppedObject.IsDroppedItem = true;
+                    Inventory::Entry droppedEntry = acEvent.Item;
+                    droppedEntry.Count = -droppedEntry.Count;
+                    if (ExtraDataList* pExtraData = pDroppedObject->GetExtraDataList())
+                        TESObjectREFR::GetItemFromExtraData(droppedEntry, pExtraData);
+                    droppedEntry.Count = -acEvent.Item.Count;
+                    droppedEntry.ExtraWorn = false;
+                    droppedEntry.ExtraWornLeft = false;
+                    request.DroppedObject.CurrentInventory.Entries.push_back(std::move(droppedEntry));
+                    request.HasDroppedObject = true;
+                    m_pendingLocalDropForms.insert(pDroppedObject->formID);
+                }
+            }
+        }
+    }
 
     m_transport.Send(request);
 
@@ -147,10 +198,10 @@ void InventoryService::OnEquipmentChangeEvent(const EquipmentChangeEvent& acEven
 
 void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& acMessage) noexcept
 {
+    Actor* pActor = nullptr;
+    TESObjectREFR* pReference = nullptr;
     if (acMessage.OwnershipEpoch != 0)
     {
-        Actor* pActor = nullptr;
-
         auto remoteView = m_world.view<RemoteComponent, FormIdComponent>(entt::exclude<LocalComponent>);
         const auto remoteIt = std::find_if(remoteView.begin(), remoteView.end(), [remoteView, &acMessage](const entt::entity aEntity)
         {
@@ -172,29 +223,245 @@ void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& ac
             if (localIt != localView.end())
                 pActor = Cast<Actor>(TESForm::GetById(localView.get<FormIdComponent>(*localIt).Id));
         }
+    }
+    else
+    {
+        pReference = Utils::GetByServerId<TESObjectREFR>(acMessage.ServerId);
+        pActor = Cast<Actor>(pReference);
+    }
 
-        if (!pActor)
+    if (acMessage.Drop)
+    {
+        if (acMessage.HasDroppedObject)
         {
-            spdlog::debug("Discarded an inventory update for actor {:X} because epoch {} is no longer current", acMessage.ServerId, acMessage.OwnershipEpoch);
-            return;
+            if (pActor && acMessage.Item.Count != 0)
+            {
+                ScopedInventoryOverride _;
+                pActor->AddOrRemoveItem(acMessage.Item);
+            }
+
+            ApplyDroppedItem(acMessage.DroppedObject);
         }
-
-        ScopedInventoryOverride _;
-
-        if (acMessage.Drop)
+        else if (pActor && acMessage.Item.Count != 0)
+        {
+            ScopedInventoryOverride _;
             pActor->DropOrPickUpObject(acMessage.Item, nullptr, nullptr);
-        else
-            pActor->AddOrRemoveItem(acMessage.Item);
-
+        }
         return;
     }
 
-    TESObjectREFR* pObject = Utils::GetByServerId<TESObjectREFR>(acMessage.ServerId);
-    if (!pObject)
+    if (acMessage.DropId != 0)
+    {
+        if (pActor && acMessage.Item.Count != 0)
+        {
+            ScopedInventoryOverride _;
+            pActor->AddOrRemoveItem(acMessage.Item);
+        }
+
+        if (acMessage.HasDroppedObject)
+            ApplyDroppedItem(acMessage.DroppedObject);
+        else
+            RemoveDroppedItem(acMessage.DropId, true);
         return;
+    }
+
+    if (!pActor)
+    {
+        if (pReference && acMessage.OwnershipEpoch == 0)
+        {
+            ScopedInventoryOverride _;
+            pReference->AddOrRemoveItem(acMessage.Item);
+            return;
+        }
+
+        if (acMessage.OwnershipEpoch != 0)
+            spdlog::debug("Discarded an inventory update for actor {:X} because epoch {} is no longer current", acMessage.ServerId, acMessage.OwnershipEpoch);
+        return;
+    }
 
     ScopedInventoryOverride _;
-    pObject->AddOrRemoveItem(acMessage.Item);
+    pActor->AddOrRemoveItem(acMessage.Item);
+}
+
+void InventoryService::OnAssignObjectsResponse(const AssignObjectsResponse& acMessage) noexcept
+{
+    std::unordered_set<uint32_t> assignedDropIds;
+    for (const auto& object : acMessage.Objects)
+    {
+        if (!object.IsDroppedItem)
+            continue;
+
+        assignedDropIds.insert(object.ServerId);
+        const auto existingIt = m_droppedServerIdToForm.find(object.ServerId);
+        if (existingIt != m_droppedServerIdToForm.end())
+        {
+            TESObjectREFR* pReference = Cast<TESObjectREFR>(TESForm::GetById(existingIt->second));
+            const auto existingDataIt = m_droppedServerData.find(object.ServerId);
+            if (pReference && pReference->IsTemporary() && existingDataIt != m_droppedServerData.end() && existingDataIt->second == object)
+                continue;
+        }
+
+        ApplyDroppedItem(object);
+    }
+
+    Vector<uint32_t> dropsToRemove;
+    for (const auto& [dropId, droppedData] : m_droppedServerData)
+    {
+        if (assignedDropIds.contains(dropId))
+            continue;
+
+        if (acMessage.WorldSpaceId)
+        {
+            if (droppedData.WorldSpaceId != acMessage.WorldSpaceId || !GridCellCoords::IsCellInGridCell(droppedData.CurrentCoords, acMessage.CurrentCoords, false))
+                continue;
+        }
+        else if (droppedData.WorldSpaceId || droppedData.CellId != acMessage.CellId)
+            continue;
+
+        dropsToRemove.push_back(dropId);
+    }
+
+    for (uint32_t dropId : dropsToRemove)
+        RemoveDroppedItem(dropId, true);
+}
+
+void InventoryService::OnDisconnected(const DisconnectedEvent&) noexcept
+{
+    ScopedReferencesOverride referencesOverride;
+    for (const auto& [dropId, formId] : m_droppedServerIdToForm)
+    {
+        if (m_localDroppedForms.contains(formId))
+            continue;
+
+        TESObjectREFR* pReference = Cast<TESObjectREFR>(TESForm::GetById(formId));
+        if (pReference && pReference->IsTemporary())
+            pReference->Delete();
+    }
+
+    m_droppedFormToServerId.clear();
+    m_droppedServerIdToForm.clear();
+    m_droppedServerData.clear();
+    m_localDroppedForms.clear();
+    m_pendingLocalDropForms.clear();
+    m_pendingLocalDropPickups.clear();
+}
+
+void InventoryService::ApplyDroppedItem(const ObjectData& acData) noexcept
+{
+    if (!acData.IsDroppedItem || acData.ServerId == 0 || acData.CurrentInventory.Entries.size() != 1)
+        return;
+
+    if (acData.LocalReferenceId != 0 && m_pendingLocalDropPickups.erase(acData.LocalReferenceId) != 0)
+    {
+        m_pendingLocalDropForms.erase(acData.LocalReferenceId);
+        return;
+    }
+
+    const auto& item = acData.CurrentInventory.Entries.front();
+    if (item.Count <= 0)
+    {
+        RemoveDroppedItem(acData.ServerId, true);
+        return;
+    }
+
+    if (acData.LocalReferenceId != 0)
+    {
+        TESObjectREFR* pLocalReference = Cast<TESObjectREFR>(TESForm::GetById(acData.LocalReferenceId));
+        const uint32_t expectedBaseId = m_world.GetModSystem().GetGameId(item.BaseId);
+        if (pLocalReference && pLocalReference->IsTemporary() && pLocalReference->baseForm && pLocalReference->baseForm->formID == expectedBaseId)
+        {
+            m_pendingLocalDropForms.erase(acData.LocalReferenceId);
+            RemoveDroppedItem(acData.ServerId, false);
+            TrackDroppedItem(acData, pLocalReference->formID, true);
+            return;
+        }
+    }
+
+    RemoveDroppedItem(acData.ServerId, true);
+    const uint32_t formId = SpawnDroppedItem(acData);
+    if (formId != 0)
+        TrackDroppedItem(acData, formId, false);
+}
+
+uint32_t InventoryService::SpawnDroppedItem(const ObjectData& acData) noexcept
+{
+    if (acData.CurrentInventory.Entries.size() != 1)
+        return 0;
+
+    PlayerCharacter* pPlayer = PlayerCharacter::Get();
+    if (!pPlayer)
+        return 0;
+
+    const auto& item = acData.CurrentInventory.Entries.front();
+    NiPoint3 position{acData.Position.x, acData.Position.y, acData.Position.z};
+    NiPoint3 rotation{acData.Rotation.x, 0.f, acData.Rotation.y};
+    const uint32_t formId = pPlayer->CreateDroppedObject(item, &position, &rotation);
+    TESObjectREFR* pReference = Cast<TESObjectREFR>(TESForm::GetById(formId));
+    if (!pReference)
+        return 0;
+
+    ModSystem& modSystem = m_world.GetModSystem();
+    TESObjectCELL* pCell = nullptr;
+    if (acData.WorldSpaceId)
+    {
+        TESWorldSpace* pWorldSpace = Cast<TESWorldSpace>(TESForm::GetById(modSystem.GetGameId(acData.WorldSpaceId)));
+        if (pWorldSpace)
+            pCell = ModManager::Get()->GetCellFromCoordinates(acData.CurrentCoords.X, acData.CurrentCoords.Y, pWorldSpace, true);
+    }
+    else
+        pCell = Cast<TESObjectCELL>(TESForm::GetById(modSystem.GetGameId(acData.CellId)));
+
+    if (!pCell)
+    {
+        pReference->Delete();
+        return 0;
+    }
+
+    if (pReference->GetParentCellEx() != pCell)
+        pReference->MoveTo(pCell, position);
+
+    pReference = Cast<TESObjectREFR>(TESForm::GetById(formId));
+    if (!pReference)
+        return 0;
+
+    pReference->SetRotation(rotation.x, rotation.y, rotation.z);
+    return formId;
+}
+
+void InventoryService::TrackDroppedItem(const ObjectData& acData, const uint32_t aFormId, const bool aIsLocalReference) noexcept
+{
+    const uint32_t aDropId = acData.ServerId;
+    RemoveDroppedItem(aDropId, false);
+    m_localDroppedForms.erase(aFormId);
+    const auto formIt = m_droppedFormToServerId.find(aFormId);
+    if (formIt != m_droppedFormToServerId.end())
+        RemoveDroppedItem(formIt->second, false);
+
+    m_droppedFormToServerId[aFormId] = aDropId;
+    m_droppedServerIdToForm[aDropId] = aFormId;
+    m_droppedServerData[aDropId] = acData;
+    if (aIsLocalReference)
+        m_localDroppedForms.insert(aFormId);
+}
+
+void InventoryService::RemoveDroppedItem(const uint32_t aDropId, const bool aDeleteReference) noexcept
+{
+    const auto dropIt = m_droppedServerIdToForm.find(aDropId);
+    if (dropIt == m_droppedServerIdToForm.end())
+        return;
+
+    const uint32_t formId = dropIt->second;
+    m_droppedServerIdToForm.erase(dropIt);
+    m_droppedServerData.erase(aDropId);
+    m_droppedFormToServerId.erase(formId);
+    m_localDroppedForms.erase(formId);
+
+    if (!aDeleteReference)
+        return;
+
+    TESObjectREFR* pReference = Cast<TESObjectREFR>(TESForm::GetById(formId));
+    if (pReference && pReference->IsTemporary())
+        pReference->Delete();
 }
 
 void InventoryService::OnNotifyEquipmentChanges(const NotifyEquipmentChanges& acMessage) noexcept

@@ -1095,7 +1095,9 @@ void* TP_MAKE_THISCALL(HookPickUpObject, Actor, TESObjectREFR* apObject, int32_t
         // The inventory change event should always be sent to the server, otherwise the server inventory won't be updated.
         bool shouldUpdateClients = apObject->IsTemporary() && !ScopedActivateOverride::IsOverriden();
 
-        QueueActorInventoryChange(apThis, InventoryChangeEvent(apThis->formID, std::move(item), false, shouldUpdateClients));
+        InventoryChangeEvent event(apThis->formID, std::move(item), false, shouldUpdateClients);
+        event.ReferenceFormId = apObject->formID;
+        QueueActorInventoryChange(apThis, std::move(event));
     }
 
     return TiltedPhoques::ThisCall(RealPickUpObject, apThis, apObject, aCount, aUnk1, aUnk2);
@@ -1108,23 +1110,36 @@ void Actor::PickUpObject(TESObjectREFR* apObject, int32_t aCount, bool aUnk1, fl
 
 void* TP_MAKE_THISCALL(HookDropObject, Actor, void* apResult, TESBoundObject* apObject, ExtraDataList* apExtraData, int32_t aCount, NiPoint3* apLocation, NiPoint3* apRotation)
 {
-    auto& modSystem = World::Get().GetModSystem();
-
-    Inventory::Entry item{};
-    modSystem.GetServerModId(apObject->formID, item.BaseId);
-    item.Count = -aCount;
-
-    if (apExtraData)
-        apThis->GetItemFromExtraData(item, apExtraData);
-
-    QueueActorInventoryChange(apThis, InventoryChangeEvent(apThis->formID, std::move(item), true));
-
+    const bool shouldTrackDrop = !ScopedInventoryOverride::IsOverriden();
     ScopedInventoryOverride _;
 
-    return TiltedPhoques::ThisCall(RealDropObject, apThis, apResult, apObject, apExtraData, aCount, apLocation, apRotation);
+    void* result = TiltedPhoques::ThisCall(RealDropObject, apThis, apResult, apObject, apExtraData, aCount, apLocation, apRotation);
+
+    if (shouldTrackDrop)
+    {
+        auto& modSystem = World::Get().GetModSystem();
+
+        Inventory::Entry item{};
+        modSystem.GetServerModId(apObject->formID, item.BaseId);
+        item.Count = -aCount;
+
+        if (apExtraData)
+            apThis->GetItemFromExtraData(item, apExtraData);
+
+        InventoryChangeEvent event(apThis->formID, std::move(item), true);
+        auto* resultHandle = static_cast<BSPointerHandle<TESObjectREFR>*>(apResult);
+        if (resultHandle)
+        {
+            if (TESObjectREFR* pDroppedObject = TESObjectREFR::GetByHandle(resultHandle->handle.iBits))
+                event.ReferenceFormId = pDroppedObject->formID;
+        }
+        QueueActorInventoryChange(apThis, std::move(event));
+    }
+
+    return result;
 }
 
-void Actor::DropOrPickUpObject(const Inventory::Entry& arEntry, NiPoint3* apLocation, NiPoint3* apRotation) noexcept
+uint32_t Actor::DropOrPickUpObject(const Inventory::Entry& arEntry, NiPoint3* apLocation, NiPoint3* apRotation) noexcept
 {
     ExtraDataList* pExtraData = GetExtraDataFromItem(arEntry);
 
@@ -1135,19 +1150,46 @@ void Actor::DropOrPickUpObject(const Inventory::Entry& arEntry, NiPoint3* apLoca
     if (!pObject)
     {
         spdlog::warn("Object to drop not found, {:X}:{:X}.", arEntry.BaseId.ModId, arEntry.BaseId.BaseId);
-        return;
+        return 0;
     }
 
     if (arEntry.Count < 0)
-        DropObject(pObject, pExtraData, -arEntry.Count, apLocation, apRotation);
+        return DropObject(pObject, pExtraData, -arEntry.Count, apLocation, apRotation);
     // TODO: pick up
+    return 0;
 }
 
-void Actor::DropObject(TESBoundObject* apObject, ExtraDataList* apExtraData, int32_t aCount, NiPoint3* apLocation, NiPoint3* apRotation) noexcept
+uint32_t Actor::DropObject(TESBoundObject* apObject, ExtraDataList* apExtraData, int32_t aCount, NiPoint3* apLocation, NiPoint3* apRotation) noexcept
 {
     spdlog::debug("Dropping object, form id: {:X}, count: {}, actor: {:X}", apObject->formID, aCount, formID);
     BSPointerHandle<TESObjectREFR> result{};
     TiltedPhoques::ThisCall(RealDropObject, this, &result, apObject, apExtraData, aCount, apLocation, apRotation);
+    TESObjectREFR* pDroppedObject = TESObjectREFR::GetByHandle(result.handle.iBits);
+    return pDroppedObject ? pDroppedObject->formID : 0;
+}
+
+uint32_t Actor::CreateDroppedObject(const Inventory::Entry& arEntry, NiPoint3* apLocation, NiPoint3* apRotation) noexcept
+{
+    if (arEntry.Count <= 0)
+        return 0;
+
+    ModSystem& modSystem = World::Get().GetModSystem();
+    const uint32_t objectId = modSystem.GetGameId(arEntry.BaseId);
+    TESBoundObject* pObject = Cast<TESBoundObject>(TESForm::GetById(objectId));
+    if (!pObject)
+    {
+        spdlog::warn("Object to drop not found, {:X}:{:X}.", arEntry.BaseId.ModId, arEntry.BaseId.BaseId);
+        return 0;
+    }
+
+    Inventory::Entry item = arEntry;
+    item.ExtraWorn = false;
+    item.ExtraWornLeft = false;
+    ExtraDataList* pExtraData = GetExtraDataFromItem(item);
+
+    ScopedInventoryOverride _;
+    AddOrRemoveItem(item);
+    return DropObject(pObject, pExtraData, item.Count, apLocation, apRotation);
 }
 
 TP_THIS_FUNCTION(TUpdateDetectionState, void, ActorKnowledge, void*);

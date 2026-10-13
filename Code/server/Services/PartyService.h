@@ -6,6 +6,7 @@ struct World;
 struct UpdateEvent;
 struct PlayerJoinEvent;
 struct PlayerLeaveEvent;
+struct PlayerEnterWorldEvent;
 struct PartyInviteRequest;
 struct PartyAcceptInviteRequest;
 struct PartyLeaveRequest;
@@ -40,6 +41,7 @@ protected:
     void OnUpdate(const UpdateEvent& acEvent) noexcept;
     void OnPlayerJoin(const PlayerJoinEvent& acEvent) noexcept;
     void OnPlayerLeave(const PlayerLeaveEvent& acEvent) noexcept;
+    void OnPlayerEnterWorld(const PlayerEnterWorldEvent& acEvent) noexcept;
     void OnPartyInvite(const PacketEvent<PartyInviteRequest>& acPacket) noexcept;
     void OnPartyAcceptInvite(const PacketEvent<PartyAcceptInviteRequest>& acPacket) noexcept;
     void OnPartyLeave(const PacketEvent<PartyLeaveRequest>& acPacket) noexcept;
@@ -61,6 +63,7 @@ private:
     entt::scoped_connection m_updateEvent;
     entt::scoped_connection m_playerJoinConnection;
     entt::scoped_connection m_playerLeaveConnection;
+    entt::scoped_connection m_playerEnterWorldConnection;
     entt::scoped_connection m_partyInviteConnection;
     entt::scoped_connection m_partyAcceptInviteConnection;
     entt::scoped_connection m_partyLeaveConnection;

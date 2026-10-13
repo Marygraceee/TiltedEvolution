@@ -4,6 +4,7 @@
 
 #include <Events/PlayerJoinEvent.h>
 #include <Events/PlayerLeaveEvent.h>
+#include <Events/PlayerEnterWorldEvent.h>
 #include <Events/UpdateEvent.h>
 
 #include <Messages/NotifyPlayerList.h>
@@ -24,6 +25,7 @@ PartyService::PartyService(World& aWorld, entt::dispatcher& aDispatcher) noexcep
     , m_updateEvent(aDispatcher.sink<UpdateEvent>().connect<&PartyService::OnUpdate>(this))
     , m_playerJoinConnection(aDispatcher.sink<PlayerJoinEvent>().connect<&PartyService::OnPlayerJoin>(this))
     , m_playerLeaveConnection(aDispatcher.sink<PlayerLeaveEvent>().connect<&PartyService::OnPlayerLeave>(this))
+    , m_playerEnterWorldConnection(aDispatcher.sink<PlayerEnterWorldEvent>().connect<&PartyService::OnPlayerEnterWorld>(this))
     , m_partyInviteConnection(aDispatcher.sink<PacketEvent<PartyInviteRequest>>().connect<&PartyService::OnPartyInvite>(this))
     , m_partyAcceptInviteConnection(aDispatcher.sink<PacketEvent<PartyAcceptInviteRequest>>().connect<&PartyService::OnPartyAcceptInvite>(this))
     , m_partyLeaveConnection(aDispatcher.sink<PacketEvent<PartyLeaveRequest>>().connect<&PartyService::OnPartyLeave>(this))
@@ -342,6 +344,16 @@ void PartyService::OnPlayerLeave(const PlayerLeaveEvent& acEvent) noexcept
 {
     RemovePlayerFromParty(acEvent.pPlayer);
     BroadcastPlayerList(acEvent.pPlayer);
+}
+
+void PartyService::OnPlayerEnterWorld(const PlayerEnterWorldEvent& acEvent) noexcept
+{
+    const auto partyId = acEvent.pPlayer->GetParty().JoinedPartyId;
+    if (!partyId)
+        return;
+
+    if (GetById(*partyId))
+        BroadcastPartyInfo(*partyId);
 }
 
 void PartyService::RemovePlayerFromParty(Player* apPlayer) noexcept

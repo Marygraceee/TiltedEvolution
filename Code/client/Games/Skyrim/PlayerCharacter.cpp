@@ -186,6 +186,7 @@ char TP_MAKE_THISCALL(HookPickUpObject, PlayerCharacter, TESObjectREFR* apObject
         InventoryChangeEvent event(apThis->formID, std::move(item), false, shouldUpdateClients);
         event.ServerId = ownershipToken->ServerId;
         event.OwnershipEpoch = ownershipToken->OwnershipEpoch;
+        event.ReferenceFormId = apObject->formID;
         World::Get().GetRunner().Trigger(std::move(event));
     }
 

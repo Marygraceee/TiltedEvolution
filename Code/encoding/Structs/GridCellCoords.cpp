@@ -1,6 +1,8 @@
 #include <Structs/GridCellCoords.h>
 #include <TiltedCore/Serialization.hpp>
 
+#include <cstdint>
+
 using TiltedPhoques::Serialization;
 
 GridCellCoords::GridCellCoords()
@@ -50,16 +52,17 @@ GridCellCoords GridCellCoords::CalculateGridCellCoords(const float aX, const flo
 
 bool GridCellCoords::AreGridCellsOverlapping(const GridCellCoords& aCoords1, const GridCellCoords& aCoords2) noexcept
 {
-    if ((abs(aCoords1.X - aCoords2.X) < m_gridsToLoad) && (abs(aCoords1.Y - aCoords2.Y) < m_gridsToLoad))
+    const int64_t distanceX = static_cast<int64_t>(aCoords1.X) - aCoords2.X;
+    const int64_t distanceY = static_cast<int64_t>(aCoords1.Y) - aCoords2.Y;
+    if (distanceX > -m_gridsToLoad && distanceX < m_gridsToLoad && distanceY > -m_gridsToLoad && distanceY < m_gridsToLoad)
         return true;
     return false;
 }
 
 bool GridCellCoords::IsCellInGridCell(const GridCellCoords& aCell, const GridCellCoords& aGridCell, bool aIsDragon) noexcept
 {
-    int32_t gridsToLoad = aIsDragon ? m_gridsToLoadIfDragon : m_gridsToLoad;
-    int32_t distanceToBorder = gridsToLoad / 2;
-    if ((abs(aCell.X - aGridCell.X) <= distanceToBorder) && (abs(aCell.Y - aGridCell.Y) <= distanceToBorder))
-        return true;
-    return false;
+    const int64_t distanceToBorder = (aIsDragon ? m_gridsToLoadIfDragon : m_gridsToLoad) / 2;
+    const int64_t distanceX = static_cast<int64_t>(aCell.X) - aGridCell.X;
+    const int64_t distanceY = static_cast<int64_t>(aCell.Y) - aGridCell.Y;
+    return distanceX >= -distanceToBorder && distanceX <= distanceToBorder && distanceY >= -distanceToBorder && distanceY <= distanceToBorder;
 }

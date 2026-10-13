@@ -3,6 +3,7 @@
 #include <GameServer.h>
 #include <World.h>
 #include <Components.h>
+#include <Services/InventoryService.h>
 
 #include <Events/PlayerLeaveCellEvent.h>
 
@@ -14,6 +15,8 @@
 #include <Messages/AssignObjectsResponse.h>
 #include <Messages/ScriptAnimationRequest.h>
 #include <Messages/NotifyScriptAnimation.h>
+
+#include <unordered_map>
 
 ObjectService::ObjectService(World& aWorld, entt::dispatcher& aDispatcher)
     : m_world(aWorld)
@@ -60,31 +63,32 @@ void ObjectService::OnPlayerLeaveCellEvent(const PlayerLeaveCellEvent& acEvent) 
 void ObjectService::OnAssignObjectsRequest(const PacketEvent<AssignObjectsRequest>& acMessage) noexcept
 {
     auto view = m_world.view<FormIdComponent, ObjectComponent, InventoryComponent>();
+    std::unordered_map<GameId, entt::entity> entitiesByFormId;
+    entitiesByFormId.reserve(view.size_hint());
+    for (const entt::entity entity : view)
+        entitiesByFormId.try_emplace(view.get<FormIdComponent>(entity).Id, entity);
 
     AssignObjectsResponse response;
+    response.CellId = acMessage.Packet.CellId;
+    response.WorldSpaceId = acMessage.Packet.WorldSpaceId;
+    response.CurrentCoords = acMessage.Packet.CurrentCoords;
 
     for (const ObjectData& object : acMessage.Packet.Objects)
     {
-        const auto iter = std::find_if(
-            std::begin(view), std::end(view),
-            [view, id = object.Id](auto entity)
-            {
-                const auto& formIdComponent = view.get<FormIdComponent>(entity);
-                return formIdComponent.Id == id;
-            });
+        const auto iter = entitiesByFormId.find(object.Id);
 
-        if (iter != std::end(view))
+        if (iter != entitiesByFormId.end())
         {
             ObjectData objectData;
-            objectData.ServerId = World::ToInteger(*iter);
+            objectData.ServerId = World::ToInteger(iter->second);
 
-            auto& formIdComponent = view.get<FormIdComponent>(*iter);
+            auto& formIdComponent = view.get<FormIdComponent>(iter->second);
             objectData.Id = formIdComponent.Id;
 
-            auto& objectComponent = view.get<ObjectComponent>(*iter);
+            auto& objectComponent = view.get<ObjectComponent>(iter->second);
             objectData.CurrentLockData = objectComponent.CurrentLockData;
 
-            auto& inventoryComponent = view.get<InventoryComponent>(*iter);
+            auto& inventoryComponent = view.get<InventoryComponent>(iter->second);
             objectData.CurrentInventory = inventoryComponent.Content;
 
             objectData.IsSenderFirst = false;
@@ -109,12 +113,15 @@ void ObjectService::OnAssignObjectsRequest(const PacketEvent<AssignObjectsReques
             objectData.ServerId = World::ToInteger(cEntity);
             objectData.IsSenderFirst = true;
 
+            entitiesByFormId.try_emplace(object.Id, cEntity);
             response.Objects.push_back(objectData);
         }
     }
 
-    if (!response.Objects.empty())
-        acMessage.pPlayer->Send(response);
+    const CellIdComponent requestedCell{acMessage.Packet.CellId, acMessage.Packet.WorldSpaceId, acMessage.Packet.CurrentCoords};
+    m_world.ctx().at<InventoryService>().AppendDroppedItems(response, requestedCell, acMessage.pPlayer->GetId());
+
+    acMessage.pPlayer->Send(response);
 }
 
 void ObjectService::OnActivate(const PacketEvent<ActivateRequest>& acMessage) const noexcept

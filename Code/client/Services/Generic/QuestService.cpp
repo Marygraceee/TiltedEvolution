@@ -18,6 +18,12 @@
 
 #include <Messages/RequestQuestUpdate.h>
 #include <Messages/NotifyQuestUpdate.h>
+#include <Messages/RequestQuestSnapshot.h>
+#include <Messages/NotifyQuestSnapshot.h>
+#include <Messages/NotifyPartyInfo.h>
+
+#include <cstddef>
+#include <unordered_map>
 
 static TESQuest* FindQuestByNameId(const String& name)
 {
@@ -32,6 +38,8 @@ QuestService::QuestService(World& aWorld, entt::dispatcher& aDispatcher)
 {
     m_joinedConnection = aDispatcher.sink<ConnectedEvent>().connect<&QuestService::OnConnected>(this);
     m_questUpdateConnection = aDispatcher.sink<NotifyQuestUpdate>().connect<&QuestService::OnQuestUpdate>(this);
+    m_partyInfoConnection = aDispatcher.sink<NotifyPartyInfo>().connect<&QuestService::OnPartyInfo>(this);
+    m_questSnapshotConnection = aDispatcher.sink<NotifyQuestSnapshot>().connect<&QuestService::OnQuestSnapshot>(this);
 
     // A note about the Gameevents:
     // TESQuestStageItemDoneEvent gets fired to late, we instead use TESQuestStageEvent, because it responds immediately.
@@ -185,6 +193,7 @@ void QuestService::OnQuestUpdate(const NotifyQuestUpdate& aUpdate) noexcept
                      aUpdate.ClientQuestType, formId, pQuest->fullName.value.AsAscii());
     }
 
+    ScopedQuestOverride questOverride;
     bool bResult = false;
     switch (aUpdate.Status)
     {
@@ -210,6 +219,69 @@ void QuestService::OnQuestUpdate(const NotifyQuestUpdate& aUpdate) noexcept
 
     if (!bResult)
         spdlog::error("Failed to update the client quest state, quest: {:X}, stage: {}, status: {}", formId, aUpdate.Stage, aUpdate.Status);
+}
+
+void QuestService::OnPartyInfo(const NotifyPartyInfo& acPartyInfo) noexcept
+{
+    if (!acPartyInfo.IsLeader)
+        return;
+
+    RequestQuestSnapshot request{};
+    auto& modSystem = m_world.GetModSystem();
+    std::unordered_map<GameId, std::size_t> entriesByQuestId;
+    entriesByQuestId.reserve(ModManager::Get()->quests.size());
+    for (TESQuest* pQuest : ModManager::Get()->quests)
+    {
+        if (!pQuest || pQuest->IsStopped() || IsNonSyncableQuest(pQuest))
+            continue;
+
+        GameId questId{};
+        if (!modSystem.GetServerModId(pQuest->formID, questId))
+            continue;
+
+        const auto [entry, inserted] = entriesByQuestId.emplace(questId, request.QuestContent.Entries.size());
+        if (inserted)
+        {
+            request.QuestContent.Entries.push_back({questId, pQuest->currentStage});
+        }
+        else
+            request.QuestContent.Entries[entry->second].Stage = pQuest->currentStage;
+    }
+
+    m_world.GetTransport().Send(request);
+}
+
+void QuestService::OnQuestSnapshot(const NotifyQuestSnapshot& acSnapshot) noexcept
+{
+    ModSystem& modSystem = m_world.GetModSystem();
+    std::unordered_map<uint32_t, uint16_t> stagesByFormId;
+    for (const auto& entry : acSnapshot.QuestContent.Entries)
+    {
+        const uint32_t formId = modSystem.GetGameId(entry.Id);
+        TESQuest* pQuest = Cast<TESQuest>(TESForm::GetById(formId));
+        if (pQuest && !IsNonSyncableQuest(pQuest))
+            stagesByFormId[formId] = entry.Stage;
+    }
+
+    ScopedQuestOverride questOverride;
+    for (TESQuest* pQuest : ModManager::Get()->quests)
+    {
+        if (!pQuest || IsNonSyncableQuest(pQuest))
+            continue;
+
+        const auto stageIt = stagesByFormId.find(pQuest->formID);
+        if (stageIt == stagesByFormId.end())
+        {
+            if (!pQuest->IsStopped())
+                StopQuest(pQuest->formID);
+            continue;
+        }
+
+        if (pQuest->currentStage != stageIt->second || pQuest->IsStopped())
+            pQuest->ScriptSetStage(stageIt->second);
+        if (!pQuest->IsActive())
+            pQuest->SetActive(true);
+    }
 }
 
 void QuestService::NotifyOverlayOfQuestUpdate(uint32_t aFormId) noexcept

@@ -6,18 +6,28 @@
 
 #include <Messages/RequestQuestUpdate.h>
 #include <Messages/NotifyQuestUpdate.h>
-
-#include <Setting.h>
-namespace
-{
-Console::Setting bEnableMiscQuestSync{"Gameplay:bEnableMiscQuestSync", "(Experimental) Syncs miscellaneous quests when possible", false};
-
-}
+#include <Messages/RequestQuestSnapshot.h>
+#include <Messages/NotifyQuestSnapshot.h>
 
 QuestService::QuestService(World& aWorld, entt::dispatcher& aDispatcher)
     : m_world(aWorld)
 {
     m_questUpdateConnection = aDispatcher.sink<PacketEvent<RequestQuestUpdate>>().connect<&QuestService::OnQuestChanges>(this);
+    m_questSnapshotConnection = aDispatcher.sink<PacketEvent<RequestQuestSnapshot>>().connect<&QuestService::OnQuestSnapshot>(this);
+}
+
+void QuestService::OnQuestSnapshot(const PacketEvent<RequestQuestSnapshot>& acMessage) noexcept
+{
+    Player* pPlayer = acMessage.pPlayer;
+    auto& partyService = m_world.GetPartyService();
+    if (!partyService.IsPlayerInParty(pPlayer) || !partyService.IsPlayerLeader(pPlayer))
+        return;
+
+    pPlayer->GetQuestLogComponent().QuestContent = acMessage.Packet.QuestContent;
+
+    NotifyQuestSnapshot notify{};
+    notify.QuestContent = acMessage.Packet.QuestContent;
+    GameServer::Get()->SendToParty(notify, pPlayer->GetParty(), pPlayer);
 }
 
 void QuestService::OnQuestChanges(const PacketEvent<RequestQuestUpdate>& acMessage) noexcept
@@ -37,13 +47,9 @@ void QuestService::OnQuestChanges(const PacketEvent<RequestQuestUpdate>& acMessa
     notify.Status = message.Status;
     notify.ClientQuestType = message.ClientQuestType;
 
-    if (notify.ClientQuestType == 0 ||  notify.ClientQuestType == 6) // Types None or Miscellaneous. Hard-coded to avoid client header file.
-    {
-        if (!bEnableMiscQuestSync)
-            return;
+    if (notify.ClientQuestType == 0 || notify.ClientQuestType == 6)
         spdlog::debug("{}: syncing type none/misc quest to party, gameId {:X} questStage {} questStatus {} questType {}",
                      __FUNCTION__, notify.Id.LogFormat(), notify.Stage, notify.Status, notify.ClientQuestType);
-    }
 
     if (message.Status == RequestQuestUpdate::Started || message.Status == RequestQuestUpdate::StageUpdate)
     {

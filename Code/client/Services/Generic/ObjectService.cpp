@@ -23,8 +23,31 @@
 #include <Forms/BGSEncounterZone.h>
 #include <Forms/TESFaction.h>
 #include <Games/TES.h>
+#include <Games/Overrides.h>
 
 #include <inttypes.h>
+
+namespace
+{
+void ApplyLockData(TESObjectREFR* apObject, const LockData& acLockData) noexcept
+{
+    Lock* pLock = apObject->GetLock();
+    if (!pLock && (acLockData.IsLocked || acLockData.LockLevel != 0))
+    {
+        pLock = apObject->CreateLock();
+        if (!pLock)
+            return;
+    }
+
+    if (!pLock || (pLock->IsLocked() == acLockData.IsLocked && pLock->lockLevel == acLockData.LockLevel))
+        return;
+
+    ScopedLockOverride lockOverride;
+    pLock->lockLevel = acLockData.LockLevel;
+    pLock->SetLock(acLockData.IsLocked);
+    apObject->LockChange();
+}
+}
 
 ObjectService::ObjectService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport)
     : m_world(aWorld)
@@ -148,6 +171,9 @@ void ObjectService::OnCellChange(const CellChangeEvent& acEvent) noexcept
     Vector<TESObjectREFR*> objects = pCell->GetRefsByFormTypes(formTypes);
 
     AssignObjectsRequest request{};
+    request.CellId = cellId;
+    request.WorldSpaceId = worldSpaceId;
+    request.CurrentCoords = GridCellCoords::CalculateGridCellCoords(pPlayer->position.x, pPlayer->position.y);
 
     const Set<const TESObjectREFR*> playerStashContainers = GetPlayerStashContainers();
 
@@ -189,6 +215,9 @@ void ObjectService::OnAssignObjectsResponse(const AssignObjectsResponse& acMessa
 {
     for (const ObjectData& objectData : acMessage.Objects)
     {
+        if (objectData.IsDroppedItem)
+            continue;
+
         const uint32_t cObjectId = World::Get().GetModSystem().GetGameId(objectData.Id);
         TESObjectREFR* pObject = Cast<TESObjectREFR>(TESForm::GetById(cObjectId));
         if (!pObject)
@@ -202,21 +231,7 @@ void ObjectService::OnAssignObjectsResponse(const AssignObjectsResponse& acMessa
         if (objectData.IsSenderFirst)
             continue;
 
-        if (objectData.CurrentLockData != LockData{})
-        {
-            Lock* pLock = pObject->GetLock();
-
-            if (!pLock)
-            {
-                pLock = pObject->CreateLock();
-                if (!pLock)
-                    continue;
-            }
-
-            pLock->lockLevel = objectData.CurrentLockData.LockLevel;
-            pLock->SetLock(objectData.CurrentLockData.IsLocked);
-            pObject->LockChange();
-        }
+        ApplyLockData(pObject, objectData.CurrentLockData);
 
         if (pObject->baseForm->formType == FormType::Container)
         {
@@ -389,27 +404,10 @@ void ObjectService::OnLockChangeNotify(const NotifyLockChange& acMessage) noexce
         return;
     }
 
-    auto* pLock = pObject->GetLock();
-
-    if(!acMessage.IsLocked)
-    {
-        if (!pLock || !pLock->IsLocked())
-            return;
-    }
-
-    if (!pLock && acMessage.IsLocked)
-    {
-        pLock = pObject->CreateLock();
-        if (!pLock)
-        {
-            spdlog::error("Failed to create lock for object form id {:X}", pObject->formID);
-            return;
-        }
-    }
-
-    pLock->lockLevel = acMessage.LockLevel;
-    pLock->SetLock(acMessage.IsLocked);
-    pObject->LockChange();
+    LockData lockData{};
+    lockData.IsLocked = acMessage.IsLocked;
+    lockData.LockLevel = acMessage.LockLevel;
+    ApplyLockData(pObject, lockData);
 }
 
 void ObjectService::OnScriptAnimationEvent(const ScriptAnimationEvent& acEvent) noexcept

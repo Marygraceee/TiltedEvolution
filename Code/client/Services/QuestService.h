@@ -5,6 +5,8 @@
 #include <Games/Events.h>
 
 struct NotifyQuestUpdate;
+struct NotifyQuestSnapshot;
+struct NotifyPartyInfo;
 
 struct TESQuest;
 
@@ -32,6 +34,8 @@ private:
     BSTEventResult OnEvent(const TESQuestStageEvent*, const EventDispatcher<TESQuestStageEvent>*) override;
 
     void OnQuestUpdate(const NotifyQuestUpdate&) noexcept;
+    void OnPartyInfo(const NotifyPartyInfo&) noexcept;
+    void OnQuestSnapshot(const NotifyQuestSnapshot&) noexcept;
     void NotifyOverlayOfQuestUpdate(uint32_t aFormId) noexcept;
 
     World& m_world;
@@ -39,4 +43,6 @@ private:
     entt::scoped_connection m_joinedConnection;
     entt::scoped_connection m_leftConnection;
     entt::scoped_connection m_questUpdateConnection;
+    entt::scoped_connection m_partyInfoConnection;
+    entt::scoped_connection m_questSnapshotConnection;
 };

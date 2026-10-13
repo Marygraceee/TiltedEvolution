@@ -34,6 +34,7 @@ struct InventoryChangeEvent
     uint32_t FormId{};
     uint32_t ServerId{};
     uint32_t OwnershipEpoch{};
+    uint32_t ReferenceFormId{};
     Inventory::Entry Item{};
     bool Drop = false;
     bool UpdateClients = true;

@@ -1,8 +1,15 @@
 #pragma once
 
+#include <cstdint>
+#include <unordered_map>
+#include <unordered_set>
+#include <Structs/ObjectData.h>
+
 struct World;
 struct TransportService;
 
+struct AssignObjectsResponse;
+struct DisconnectedEvent;
 struct UpdateEvent;
 struct NotifyObjectInventoryChanges;
 struct NotifyInventoryChanges;
@@ -45,6 +52,8 @@ struct InventoryService
      * @brief Applies inventory changes sent by the server.
      */
     void OnNotifyInventoryChanges(const NotifyInventoryChanges& acMessage) noexcept;
+    void OnAssignObjectsResponse(const AssignObjectsResponse& acMessage) noexcept;
+    void OnDisconnected(const DisconnectedEvent&) noexcept;
     /**
      * @brief Applies equipment changes sent by the server.
      */
@@ -56,6 +65,10 @@ private:
      * and if so, send the new states to the server.
      */
     void RunWeaponStateUpdates() noexcept;
+    void ApplyDroppedItem(const ObjectData& acData) noexcept;
+    uint32_t SpawnDroppedItem(const ObjectData& acData) noexcept;
+    void TrackDroppedItem(const ObjectData& acData, const uint32_t aFormId, const bool aIsLocalReference) noexcept;
+    void RemoveDroppedItem(const uint32_t aDropId, const bool aDeleteReference) noexcept;
 
     World& m_world;
     entt::dispatcher& m_dispatcher;
@@ -66,4 +79,13 @@ private:
     entt::scoped_connection m_equipmentConnection;
     entt::scoped_connection m_inventoryChangeConnection;
     entt::scoped_connection m_equipmentChangeConnection;
+    entt::scoped_connection m_assignObjectsConnection;
+    entt::scoped_connection m_disconnectedConnection;
+
+    std::unordered_map<uint32_t, uint32_t> m_droppedFormToServerId;
+    std::unordered_map<uint32_t, uint32_t> m_droppedServerIdToForm;
+    std::unordered_map<uint32_t, ObjectData> m_droppedServerData;
+    std::unordered_set<uint32_t> m_localDroppedForms;
+    std::unordered_set<uint32_t> m_pendingLocalDropForms;
+    std::unordered_set<uint32_t> m_pendingLocalDropPickups;
 };

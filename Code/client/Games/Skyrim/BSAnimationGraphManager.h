@@ -4,6 +4,8 @@
 
 #include <Havok/BShkbAnimationGraph.h>
 
+#include <memory>
+
 struct BSFixedString;
 
 struct BSAnimationGraphManager
@@ -14,7 +16,7 @@ struct BSAnimationGraphManager
     void Release()
     {
         if (InterlockedDecrement(&refCount) == 0)
-            this->~BSAnimationGraphManager();
+            delete this;
     }
 
     volatile LONG refCount;
@@ -34,6 +36,17 @@ struct BSAnimationGraphManager
     uint64_t GetDescriptorKey(int aForceIndex = -1);
     uint64_t GetProjectKey(int aForceIndex = -1);
 };
+
+struct BSAnimationGraphManagerDeleter
+{
+    void operator()(BSAnimationGraphManager* apManager) const noexcept
+    {
+        if (apManager)
+            apManager->Release();
+    }
+};
+
+using BSAnimationGraphManagerPtr = std::unique_ptr<BSAnimationGraphManager, BSAnimationGraphManagerDeleter>;
 
 #if TP_PLATFORM_64
 static_assert(offsetof(BSAnimationGraphManager, animationGraphs) == 0x40);
