@@ -168,7 +168,10 @@ void MagicService::OnNotifySpellCast(const NotifySpellCast& acMessage) const noe
         return;
     }
 
-    Actor* pActor = Utils::GetByServerId<Actor>(acMessage.CasterId);
+    const auto& remoteComponent = remoteView.get<RemoteComponent>(*remoteIt);
+    const auto* pFormIdComponent = m_world.try_get<FormIdComponent>(*remoteIt);
+    const uint32_t formId = pFormIdComponent ? pFormIdComponent->Id : remoteComponent.CachedRefId;
+    Actor* pActor = Cast<Actor>(TESForm::GetById(formId));
     if (!pActor)
         return;
 
@@ -303,7 +306,10 @@ void MagicService::OnNotifyInterruptCast(const NotifyInterruptCast& acMessage) c
         return;
     }
 
-    Actor* pActor = Utils::GetByServerId<Actor>(acMessage.CasterId);
+    const auto& remoteComponent = remoteView.get<RemoteComponent>(*remoteIt);
+    const auto* pFormIdComponent = m_world.try_get<FormIdComponent>(*remoteIt);
+    const uint32_t formId = pFormIdComponent ? pFormIdComponent->Id : remoteComponent.CachedRefId;
+    Actor* pActor = Cast<Actor>(TESForm::GetById(formId));
     if (!pActor)
         return;
 

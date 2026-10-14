@@ -336,7 +336,10 @@ void CharacterService::OnDisconnected(const DisconnectedEvent& acDisconnectedEve
     auto remoteView = m_world.view<RemoteComponent>();
     for (auto entity : remoteView)
     {
-        auto pActor = Utils::GetByServerId<Actor>(remoteView.get<RemoteComponent>(entity).Id);
+        const auto& remoteComponent = remoteView.get<RemoteComponent>(entity);
+        const auto* pFormIdComponent = m_world.try_get<FormIdComponent>(entity);
+        const uint32_t formId = pFormIdComponent ? pFormIdComponent->Id : remoteComponent.CachedRefId;
+        auto pActor = Cast<Actor>(TESForm::GetById(formId));
         if (!pActor)
             continue;
 
@@ -1077,27 +1080,34 @@ void CharacterService::OnMountEvent(const MountEvent& acEvent) const noexcept
 
 void CharacterService::OnNotifyMount(const NotifyMount& acMessage) const noexcept
 {
-    const auto riderEntity = Utils::FindEntityByServerId(acMessage.RiderId);
-    const auto* pRiderRemote = riderEntity ? m_world.try_get<RemoteComponent>(*riderEntity) : nullptr;
-    if (!pRiderRemote)
+    auto remoteView = m_world.view<RemoteComponent>();
+    const auto riderIt = std::find_if(
+        remoteView.begin(), remoteView.end(), [remoteView, &acMessage](const entt::entity aEntity) { return remoteView.get<RemoteComponent>(aEntity).Id == acMessage.RiderId; });
+    if (riderIt == remoteView.end())
     {
         spdlog::warn("Rider with remote id {:X} not found.", acMessage.RiderId);
         return;
     }
 
-    Actor* pRider = Utils::GetByServerId<Actor>(acMessage.RiderId);
+    const auto& riderRemoteComponent = remoteView.get<RemoteComponent>(*riderIt);
+    const auto* pRiderFormId = m_world.try_get<FormIdComponent>(*riderIt);
+    const uint32_t riderFormId = pRiderFormId ? pRiderFormId->Id : riderRemoteComponent.CachedRefId;
+    Actor* pRider = Cast<Actor>(TESForm::GetById(riderFormId));
     if (!pRider)
         return;
 
-    const auto mountEntity = Utils::FindEntityByServerId(acMessage.MountId);
-    const auto* pMountRemote = mountEntity ? m_world.try_get<RemoteComponent>(*mountEntity) : nullptr;
-    if (!pMountRemote)
+    const auto mountIt = std::find_if(
+        remoteView.begin(), remoteView.end(), [remoteView, &acMessage](const entt::entity aEntity) { return remoteView.get<RemoteComponent>(aEntity).Id == acMessage.MountId; });
+    if (mountIt == remoteView.end())
     {
         spdlog::warn("Cannot apply mount update because mount {:X} is unavailable", acMessage.MountId);
         return;
     }
 
-    Actor* pMount = Utils::GetByServerId<Actor>(acMessage.MountId);
+    const auto& mountRemoteComponent = remoteView.get<RemoteComponent>(*mountIt);
+    const auto* pMountFormId = m_world.try_get<FormIdComponent>(*mountIt);
+    const uint32_t mountFormId = pMountFormId ? pMountFormId->Id : mountRemoteComponent.CachedRefId;
+    Actor* pMount = Cast<Actor>(TESForm::GetById(mountFormId));
     if (!pMount)
         return;
 
@@ -1139,18 +1149,24 @@ void CharacterService::OnInitPackageEvent(const InitPackageEvent& acEvent) const
 
 void CharacterService::OnNotifyNewPackage(const NotifyNewPackage& acMessage) const noexcept
 {
-    const auto entity = Utils::FindEntityByServerId(acMessage.ActorId);
-    const auto* pRemoteComponent = entity ? m_world.try_get<RemoteComponent>(*entity) : nullptr;
-    if (!pRemoteComponent)
+    auto remoteView = m_world.view<RemoteComponent>();
+    const auto remoteIt = std::find_if(
+        remoteView.begin(), remoteView.end(),
+        [remoteView, &acMessage](const entt::entity aEntity)
+        {
+            const auto& remoteComponent = remoteView.get<RemoteComponent>(aEntity);
+            return remoteComponent.Id == acMessage.ActorId && remoteComponent.OwnershipEpoch == acMessage.OwnershipEpoch;
+        });
+    if (remoteIt == remoteView.end())
     {
         spdlog::warn("Actor for package with remote id {:X} not found.", acMessage.ActorId);
         return;
     }
 
-    if (pRemoteComponent->OwnershipEpoch != acMessage.OwnershipEpoch)
-        return;
-
-    Actor* pActor = Utils::GetByServerId<Actor>(acMessage.ActorId);
+    const auto& remoteComponent = remoteView.get<RemoteComponent>(*remoteIt);
+    const auto* pFormIdComponent = m_world.try_get<FormIdComponent>(*remoteIt);
+    const uint32_t formId = pFormIdComponent ? pFormIdComponent->Id : remoteComponent.CachedRefId;
+    Actor* pActor = Cast<Actor>(TESForm::GetById(formId));
     if (!pActor)
         return;
 
