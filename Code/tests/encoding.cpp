@@ -28,6 +28,8 @@
 #include <Messages/NotifyHealthChangeBroadcast.h>
 #include <Messages/SpellCastRequest.h>
 #include <Messages/NotifySpellCast.h>
+#include <Messages/InterruptCastRequest.h>
+#include <Messages/NotifyInterruptCast.h>
 #include <Messages/RequestQuestSnapshot.h>
 #include <Messages/RequestFactionsChanges.h>
 #include <Messages/NotifyInventoryChanges.h>
@@ -135,6 +137,41 @@ TEST_CASE("Spell cast messages preserve ownership epochs", "[encoding.spell_cast
     auto notifyMessage = serverFactory.Extract(notifyReader);
     REQUIRE(notifyMessage);
     auto decodedNotify = CastUnique<NotifySpellCast>(std::move(notifyMessage));
+    REQUIRE(*decodedNotify == notify);
+}
+
+TEST_CASE("Interrupt cast messages preserve ownership epochs", "[encoding.interrupt_cast]")
+{
+    InterruptCastRequest request{};
+    request.CasterId = 11;
+    request.OwnershipEpoch = 271;
+    request.CastingSource = 2;
+
+    Buffer requestBuffer(1000);
+    Buffer::Writer requestWriter(&requestBuffer);
+    request.Serialize(requestWriter);
+
+    Buffer::Reader requestReader(&requestBuffer);
+    const ClientMessageFactory clientFactory;
+    auto requestMessage = clientFactory.Extract(requestReader);
+    REQUIRE(requestMessage);
+    auto decodedRequest = CastUnique<InterruptCastRequest>(std::move(requestMessage));
+    REQUIRE(*decodedRequest == request);
+
+    NotifyInterruptCast notify{};
+    notify.CasterId = request.CasterId;
+    notify.OwnershipEpoch = request.OwnershipEpoch;
+    notify.CastingSource = request.CastingSource;
+
+    Buffer notifyBuffer(1000);
+    Buffer::Writer notifyWriter(&notifyBuffer);
+    notify.Serialize(notifyWriter);
+
+    Buffer::Reader notifyReader(&notifyBuffer);
+    const ServerMessageFactory serverFactory;
+    auto notifyMessage = serverFactory.Extract(notifyReader);
+    REQUIRE(notifyMessage);
+    auto decodedNotify = CastUnique<NotifyInterruptCast>(std::move(notifyMessage));
     REQUIRE(*decodedNotify == notify);
 }
 

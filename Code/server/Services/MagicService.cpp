@@ -47,12 +47,17 @@ void MagicService::OnInterruptCastRequest(const PacketEvent<InterruptCastRequest
 {
     auto& message = acMessage.Packet;
 
+    auto view = m_world.view<OwnerComponent>();
+    const auto it = view.find(static_cast<entt::entity>(message.CasterId));
+    if (it == view.end() || !view.get<OwnerComponent>(*it).IsCurrentOwner(acMessage.pPlayer, message.OwnershipEpoch))
+        return;
+
     NotifyInterruptCast notify;
     notify.CasterId = message.CasterId;
+    notify.OwnershipEpoch = message.OwnershipEpoch;
     notify.CastingSource = message.CastingSource;
 
-    const auto entity = static_cast<entt::entity>(message.CasterId);
-    if (!GameServer::Get()->SendToPlayersInRange(notify, entity, acMessage.GetSender()))
+    if (!GameServer::Get()->SendToPlayersInRange(notify, *it, acMessage.GetSender()))
         spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
 }
 
