@@ -148,11 +148,6 @@ void ObjectService::OnCellChange(const CellChangeEvent& acEvent) noexcept
     PlayerCharacter* pPlayer = PlayerCharacter::Get();
     TESObjectCELL* pCell = pPlayer->parentCell;
 
-    // Player homes should not be synced, so that chest contents,
-    // which are often used as storage, are never accidentally wiped.
-    if (!World::Get().GetServerSettings().SyncPlayerHomes && IsPlayerHome(pCell))
-        return;
-
     GameId cellId{};
     if (!m_world.GetModSystem().GetServerModId(pCell->formID, cellId))
     {
@@ -170,14 +165,22 @@ void ObjectService::OnCellChange(const CellChangeEvent& acEvent) noexcept
         }
     }
 
-    Vector<FormType> formTypes = {FormType::Container, FormType::Door};
-    // Door seemed to be at the wrong form id (29, now 32), verify this.
-    Vector<TESObjectREFR*> objects = pCell->GetRefsByFormTypes(formTypes);
-
     AssignObjectsRequest request{};
     request.CellId = cellId;
     request.WorldSpaceId = worldSpaceId;
     request.CurrentCoords = GridCellCoords::CalculateGridCellCoords(pPlayer->position.x, pPlayer->position.y);
+
+    // Player homes should not be synced, so that chest contents,
+    // which are often used as storage, are never accidentally wiped.
+    if (!World::Get().GetServerSettings().SyncPlayerHomes && IsPlayerHome(pCell))
+    {
+        m_transport.Send(request);
+        return;
+    }
+
+    Vector<FormType> formTypes = {FormType::Container, FormType::Door};
+    // Door seemed to be at the wrong form id (29, now 32), verify this.
+    Vector<TESObjectREFR*> objects = pCell->GetRefsByFormTypes(formTypes);
 
     const Set<const TESObjectREFR*> playerStashContainers = GetPlayerStashContainers();
 

@@ -73,16 +73,24 @@ void ObjectService::OnPlayerLeaveCellEvent(const PlayerLeaveCellEvent& acEvent) 
 // This is fine for containers and doors, but if this system is expanded, think of temporaries.
 void ObjectService::OnAssignObjectsRequest(const PacketEvent<AssignObjectsRequest>& acMessage) noexcept
 {
+    AssignObjectsResponse response;
+    response.CellId = acMessage.Packet.CellId;
+    response.WorldSpaceId = acMessage.Packet.WorldSpaceId;
+    response.CurrentCoords = acMessage.Packet.CurrentCoords;
+
+    if (acMessage.Packet.Objects.empty())
+    {
+        const CellIdComponent requestedCell{acMessage.Packet.CellId, acMessage.Packet.WorldSpaceId, acMessage.Packet.CurrentCoords};
+        m_world.ctx().at<InventoryService>().AppendDroppedItems(response, requestedCell, acMessage.pPlayer->GetId());
+        acMessage.pPlayer->Send(response);
+        return;
+    }
+
     auto view = m_world.view<FormIdComponent, ObjectComponent, InventoryComponent>();
     std::unordered_map<GameId, entt::entity> entitiesByFormId;
     entitiesByFormId.reserve(view.size_hint());
     for (const entt::entity entity : view)
         entitiesByFormId.try_emplace(view.get<FormIdComponent>(entity).Id, entity);
-
-    AssignObjectsResponse response;
-    response.CellId = acMessage.Packet.CellId;
-    response.WorldSpaceId = acMessage.Packet.WorldSpaceId;
-    response.CurrentCoords = acMessage.Packet.CurrentCoords;
 
     for (const ObjectData& object : acMessage.Packet.Objects)
     {
