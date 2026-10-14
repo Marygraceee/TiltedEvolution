@@ -360,7 +360,23 @@ void InventoryService::OnAssignObjectsResponse(const AssignObjectsResponse& acMe
 void InventoryService::OnDisconnected(const DisconnectedEvent&) noexcept
 {
     ScopedReferencesOverride referencesOverride;
+    Vector<uint32_t> remoteDropIds;
     for (const auto& [dropId, formId] : m_droppedServerIdToForm)
+    {
+        if (m_localDroppedForms.contains(formId))
+            continue;
+
+        TESObjectREFR* pReference = Cast<TESObjectREFR>(TESForm::GetById(formId));
+        if (pReference && pReference->IsTemporary())
+            pReference->Delete();
+
+        remoteDropIds.push_back(dropId);
+    }
+
+    for (uint32_t dropId : remoteDropIds)
+        RemoveDroppedItem(dropId, false);
+
+    for (uint32_t formId : m_pendingLocalDropForms)
     {
         if (m_localDroppedForms.contains(formId))
             continue;
@@ -370,10 +386,6 @@ void InventoryService::OnDisconnected(const DisconnectedEvent&) noexcept
             pReference->Delete();
     }
 
-    m_droppedFormToServerId.clear();
-    m_droppedServerIdToForm.clear();
-    m_droppedServerData.clear();
-    m_localDroppedForms.clear();
     m_pendingLocalDropForms.clear();
     m_pendingLocalDropPickups.clear();
 }
