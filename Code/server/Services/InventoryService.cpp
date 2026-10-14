@@ -10,6 +10,7 @@
 #include <Messages/RequestEquipmentChanges.h>
 #include <Messages/NotifyEquipmentChanges.h>
 #include <Messages/DrawWeaponRequest.h>
+#include <Messages/NotifyDrawWeapon.h>
 #include <Messages/AssignObjectsResponse.h>
 
 #include <limits>
@@ -400,7 +401,17 @@ void InventoryService::OnWeaponDrawnRequest(const PacketEvent<DrawWeaponRequest>
     if (it != std::end(characterView) && characterView.get<OwnerComponent>(*it).IsCurrentOwner(acMessage.pPlayer, message.OwnershipEpoch))
     {
         auto& characterComponent = characterView.get<CharacterComponent>(*it);
+        if (characterComponent.IsWeaponDrawn() == message.IsWeaponDrawn)
+            return;
+
         characterComponent.SetWeaponDrawn(message.IsWeaponDrawn);
         spdlog::debug("Updating weapon drawn state {:x}:{}", message.Id, message.IsWeaponDrawn);
+
+        NotifyDrawWeapon notify{};
+        notify.Id = message.Id;
+        notify.OwnershipEpoch = message.OwnershipEpoch;
+        notify.IsWeaponDrawn = message.IsWeaponDrawn;
+        if (!GameServer::Get()->SendToPlayersInRange(notify, *it, acMessage.GetSender()))
+            spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
     }
 }

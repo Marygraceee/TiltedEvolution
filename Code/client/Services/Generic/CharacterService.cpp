@@ -44,6 +44,7 @@
 #include <Messages/ClientReferencesMoveRequest.h>
 #include <Messages/RequestActionEvents.h>
 #include <Messages/NotifyActionEvents.h>
+#include <Messages/NotifyDrawWeapon.h>
 #include <Messages/CharacterSpawnRequest.h>
 #include <Messages/RequestFactionsChanges.h>
 #include <Messages/NotifyFactionsChanges.h>
@@ -86,6 +87,7 @@ CharacterService::CharacterService(World& aWorld, entt::dispatcher& aDispatcher,
     m_characterSpawnConnection = m_dispatcher.sink<CharacterSpawnRequest>().connect<&CharacterService::OnCharacterSpawn>(this);
     m_referenceMovementSnapshotConnection = m_dispatcher.sink<ServerReferencesMoveRequest>().connect<&CharacterService::OnReferencesMoveRequest>(this);
     m_actionEventsConnection = m_dispatcher.sink<NotifyActionEvents>().connect<&CharacterService::OnNotifyActionEvents>(this);
+    m_notifyDrawWeaponConnection = m_dispatcher.sink<NotifyDrawWeapon>().connect<&CharacterService::OnNotifyDrawWeapon>(this);
     m_factionsConnection = m_dispatcher.sink<NotifyFactionsChanges>().connect<&CharacterService::OnFactionsChanges>(this);
     m_ownershipTransferConnection = m_dispatcher.sink<NotifyOwnershipTransfer>().connect<&CharacterService::OnOwnershipTransfer>(this);
     m_removeCharacterConnection = m_dispatcher.sink<NotifyRemoveCharacter>().connect<&CharacterService::OnRemoveCharacter>(this);
@@ -737,6 +739,31 @@ void CharacterService::OnActionEvent(const ActionEvent& acActionEvent) const noe
             view.get<EarlyAnimationBufferComponent>(*itor).Actions.push_back(acActionEvent);
         }
     }
+}
+
+void CharacterService::OnNotifyDrawWeapon(const NotifyDrawWeapon& acMessage) noexcept
+{
+    auto view = m_world.view<RemoteComponent, FormIdComponent>();
+    const auto it = std::find_if(
+        view.begin(), view.end(),
+        [view, &acMessage](const entt::entity aEntity)
+        {
+            const auto& remoteComponent = view.get<RemoteComponent>(aEntity);
+            return remoteComponent.Id == acMessage.Id && remoteComponent.OwnershipEpoch == acMessage.OwnershipEpoch;
+        });
+    if (it == view.end())
+        return;
+
+    const uint32_t formId = view.get<FormIdComponent>(*it).Id;
+    m_weaponDrawUpdates.erase(formId);
+
+    if (auto* pWaitingFor3D = m_world.try_get<WaitingFor3D>(*it))
+    {
+        pWaitingFor3D->SpawnRequest.IsWeaponDrawn = acMessage.IsWeaponDrawn;
+        return;
+    }
+
+    m_weaponDrawUpdates[formId] = {acMessage.IsWeaponDrawn};
 }
 
 void CharacterService::OnFactionsChanges(const NotifyFactionsChanges& acEvent) const noexcept

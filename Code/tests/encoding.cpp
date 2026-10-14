@@ -21,6 +21,7 @@
 #include <Messages/AssignObjectsRequest.h>
 #include <Messages/CharacterSpawnRequest.h>
 #include <Messages/DrawWeaponRequest.h>
+#include <Messages/NotifyDrawWeapon.h>
 #include <Messages/RequestInventoryChanges.h>
 #include <Messages/RequestQuestSnapshot.h>
 #include <Messages/RequestFactionsChanges.h>
@@ -172,6 +173,22 @@ TEST_CASE("Weapon state request preserves ownership epoch", "[encoding.weapon_st
     REQUIRE(message);
     auto decodedRequest = CastUnique<DrawWeaponRequest>(std::move(message));
     REQUIRE(*decodedRequest == request);
+
+    NotifyDrawWeapon notify{};
+    notify.Id = request.Id;
+    notify.OwnershipEpoch = request.OwnershipEpoch;
+    notify.IsWeaponDrawn = request.IsWeaponDrawn;
+
+    Buffer notifyBuffer(1000);
+    Buffer::Writer notifyWriter(&notifyBuffer);
+    notify.Serialize(notifyWriter);
+
+    Buffer::Reader notifyReader(&notifyBuffer);
+    const ServerMessageFactory serverFactory;
+    auto notifyMessage = serverFactory.Extract(notifyReader);
+    REQUIRE(notifyMessage);
+    auto decodedNotify = CastUnique<NotifyDrawWeapon>(std::move(notifyMessage));
+    REQUIRE(*decodedNotify == notify);
 }
 
 TEST_CASE("Grid cell ranges handle integer boundaries", "[encoding.grid_cell]")
