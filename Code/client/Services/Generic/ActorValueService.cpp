@@ -142,7 +142,7 @@ void ActorValueService::BroadcastActorValues() noexcept
         {
             if (isPlayer && i == ActorValueInfo::kDragonSouls)
                 continue;
-            
+
             float newValue = pActor->GetActorValue(i);
             float oldValue = actorValuesComponent.CurrentActorValues.ActorValuesList[i];
             if (newValue != oldValue)
@@ -319,6 +319,9 @@ void ActorValueService::RunActorValuesUpdates() noexcept
 
 void ActorValueService::OnHealthChangeBroadcast(const NotifyHealthChangeBroadcast& acMessage) const noexcept
 {
+    if (!std::isfinite(acMessage.DeltaHealth))
+        return;
+
     const auto entity = Utils::FindEntityByServerId(acMessage.Id);
     if (!entity)
         return;
@@ -335,10 +338,27 @@ void ActorValueService::OnHealthChangeBroadcast(const NotifyHealthChangeBroadcas
         return;
 
     const auto* pFormIdComponent = m_world.try_get<FormIdComponent>(*entity);
-    Actor* pActor = pFormIdComponent ? Cast<Actor>(TESForm::GetById(pFormIdComponent->Id)) : nullptr;
+    uint32_t actorFormId = 0;
+    if (pFormIdComponent)
+        actorFormId = pFormIdComponent->Id;
+    else if (pRemoteComponent)
+        actorFormId = pRemoteComponent->CachedRefId;
+    Actor* pActor = Cast<Actor>(TESForm::GetById(actorFormId));
+    auto* pWaitingFor3D = m_world.try_get<WaitingFor3D>(*entity);
+
     if (!pActor)
     {
-        spdlog::error("{}: could not find actor server id {:X}", __FUNCTION__, acMessage.Id);
+        if (pWaitingFor3D)
+        {
+            auto& values = pWaitingFor3D->SpawnRequest.InitialActorValues.ActorValuesList;
+            const auto health = values.find(ActorValueInfo::kHealth);
+            if (health != values.end())
+            {
+                const float pendingHealth = health->second + acMessage.DeltaHealth;
+                if (std::isfinite(pendingHealth))
+                    health->second = pendingHealth;
+            }
+        }
         return;
     }
 
@@ -347,6 +367,9 @@ void ActorValueService::OnHealthChangeBroadcast(const NotifyHealthChangeBroadcas
         return;
 
     pActor->ForceActorValue(ActorValueOwner::ForceMode::DAMAGE, ActorValueInfo::kHealth, newHealth);
+
+    if (pWaitingFor3D)
+        pWaitingFor3D->SpawnRequest.InitialActorValues.ActorValuesList[ActorValueInfo::kHealth] = pActor->GetActorValue(ActorValueInfo::kHealth);
 
     const float health = pActor->GetActorValue(ActorValueInfo::kHealth);
     if (!pActor->IsDead() && health <= 0.f)
@@ -366,22 +389,24 @@ void ActorValueService::OnHealthChangeBroadcast(const NotifyHealthChangeBroadcas
 
 void ActorValueService::OnActorValueChanges(const NotifyActorValueChanges& acMessage) const noexcept
 {
-    auto view = m_world.view<FormIdComponent, RemoteComponent>();
+    auto view = m_world.view<RemoteComponent>();
 
-    const auto itor = std::find_if(std::begin(view), std::end(view), [&acMessage, view](entt::entity entity)
-    {
-        const auto& remote = view.get<RemoteComponent>(entity);
-        return remote.Id == acMessage.Id && acMessage.OwnershipEpoch != 0 && remote.OwnershipEpoch == acMessage.OwnershipEpoch;
-    });
+    const auto itor = std::find_if(
+        std::begin(view), std::end(view),
+        [&acMessage, view](entt::entity entity)
+        {
+            const auto& remote = view.get<RemoteComponent>(entity);
+            return remote.Id == acMessage.Id && acMessage.OwnershipEpoch != 0 && remote.OwnershipEpoch == acMessage.OwnershipEpoch;
+        });
 
     if (itor == std::end(view))
         return;
 
-    auto& formIdComponent = view.get<FormIdComponent>(*itor);
-    Actor* const pActor = Cast<Actor>(TESForm::GetById(formIdComponent.Id));
-
-    if (!pActor)
-        return;
+    auto& remoteComponent = view.get<RemoteComponent>(*itor);
+    const auto* pFormIdComponent = m_world.try_get<FormIdComponent>(*itor);
+    const uint32_t actorFormId = pFormIdComponent ? pFormIdComponent->Id : remoteComponent.CachedRefId;
+    Actor* const pActor = Cast<Actor>(TESForm::GetById(actorFormId));
+    auto* pWaitingFor3D = m_world.try_get<WaitingFor3D>(*itor);
 
     for (const auto& [key, value] : acMessage.Values)
     {
@@ -392,7 +417,13 @@ void ActorValueService::OnActorValueChanges(const NotifyActorValueChanges& acMes
         if (key == ActorValueInfo::kDragonSouls || key == ActorValueInfo::kHealth)
             continue;
 
+        if (pWaitingFor3D)
+            pWaitingFor3D->SpawnRequest.InitialActorValues.ActorValuesList[key] = value;
+
         spdlog::debug("Actor value update, server ID: {:X}, key: {}, value: {}", acMessage.Id, key, value);
+
+        if (!pActor)
+            continue;
 
         if (key == ActorValueInfo::kStamina || key == ActorValueInfo::kMagicka || key == ActorValueInfo::kHealth)
         {
@@ -405,22 +436,24 @@ void ActorValueService::OnActorValueChanges(const NotifyActorValueChanges& acMes
 
 void ActorValueService::OnActorMaxValueChanges(const NotifyActorMaxValueChanges& acMessage) const noexcept
 {
-    auto view = m_world.view<FormIdComponent, RemoteComponent>();
+    auto view = m_world.view<RemoteComponent>();
 
-    const auto it = std::find_if(std::begin(view), std::end(view), [&acMessage, view](entt::entity entity)
-    {
-        const auto& remote = view.get<RemoteComponent>(entity);
-        return remote.Id == acMessage.Id && acMessage.OwnershipEpoch != 0 && remote.OwnershipEpoch == acMessage.OwnershipEpoch;
-    });
+    const auto it = std::find_if(
+        std::begin(view), std::end(view),
+        [&acMessage, view](entt::entity entity)
+        {
+            const auto& remote = view.get<RemoteComponent>(entity);
+            return remote.Id == acMessage.Id && acMessage.OwnershipEpoch != 0 && remote.OwnershipEpoch == acMessage.OwnershipEpoch;
+        });
 
     if (it == std::end(view))
         return;
 
-    auto& formIdComponent = view.get<FormIdComponent>(*it);
-    Actor* pActor = Cast<Actor>(TESForm::GetById(formIdComponent.Id));
-
-    if (!pActor)
-        return;
+    auto& remoteComponent = view.get<RemoteComponent>(*it);
+    const auto* pFormIdComponent = m_world.try_get<FormIdComponent>(*it);
+    const uint32_t actorFormId = pFormIdComponent ? pFormIdComponent->Id : remoteComponent.CachedRefId;
+    Actor* pActor = Cast<Actor>(TESForm::GetById(actorFormId));
+    auto* pWaitingFor3D = m_world.try_get<WaitingFor3D>(*it);
 
     for (const auto& [key, value] : acMessage.Values)
     {
@@ -430,36 +463,44 @@ void ActorValueService::OnActorMaxValueChanges(const NotifyActorMaxValueChanges&
         if (key == ActorValueInfo::kDragonSouls)
             continue;
 
+        if (pWaitingFor3D)
+            pWaitingFor3D->SpawnRequest.InitialActorValues.ActorMaxValuesList[key] = value;
+
         spdlog::debug("Actor max value update, server ID: {:X}, key: {}, value: {}", acMessage.Id, key, value);
 
-        pActor->ForceActorValue(ActorValueOwner::ForceMode::PERMANENT, key, value);
+        if (pActor)
+            pActor->ForceActorValue(ActorValueOwner::ForceMode::PERMANENT, key, value);
     }
 }
 
 void ActorValueService::OnDeathStateChange(const NotifyDeathStateChange& acMessage) const noexcept
 {
-    auto view = m_world.view<FormIdComponent, RemoteComponent>();
+    auto view = m_world.view<RemoteComponent>();
 
-    const auto it = std::find_if(std::begin(view), std::end(view), [&acMessage, view](entt::entity entity)
-    {
-        const auto& remote = view.get<RemoteComponent>(entity);
-        return remote.Id == acMessage.Id && acMessage.OwnershipEpoch != 0 && remote.OwnershipEpoch == acMessage.OwnershipEpoch;
-    });
+    const auto it = std::find_if(
+        std::begin(view), std::end(view),
+        [&acMessage, view](entt::entity entity)
+        {
+            const auto& remote = view.get<RemoteComponent>(entity);
+            return remote.Id == acMessage.Id && acMessage.OwnershipEpoch != 0 && remote.OwnershipEpoch == acMessage.OwnershipEpoch;
+        });
 
     if (it == std::end(view))
     {
         const auto cEntity = Utils::FindEntityByServerId(acMessage.Id);
         spdlog::info(
-            "Dropped death state {} for server id {:X} at epoch {}, entity found: {}, has form id: {}, waiting for 3D: {}", acMessage.IsDead, acMessage.Id, acMessage.OwnershipEpoch,
-            cEntity.has_value(), cEntity && m_world.all_of<FormIdComponent>(*cEntity), cEntity && m_world.all_of<WaitingFor3D>(*cEntity));
+            "Dropped death state {} for server id {:X} at epoch {}, entity found: {}, has form id: {}, waiting for 3D: {}", acMessage.IsDead, acMessage.Id,
+            acMessage.OwnershipEpoch, cEntity.has_value(), cEntity && m_world.all_of<FormIdComponent>(*cEntity), cEntity && m_world.all_of<WaitingFor3D>(*cEntity));
         return;
     }
 
     if (auto* pWaitingFor3D = m_world.try_get<WaitingFor3D>(*it); pWaitingFor3D && !pWaitingFor3D->SpawnRequest.IsPlayer)
         pWaitingFor3D->SpawnRequest.IsDead = acMessage.IsDead;
 
-    auto& formIdComponent = view.get<FormIdComponent>(*it);
-    Actor* pActor = Cast<Actor>(TESForm::GetById(formIdComponent.Id));
+    const auto& remoteComponent = view.get<RemoteComponent>(*it);
+    const auto* pFormIdComponent = m_world.try_get<FormIdComponent>(*it);
+    const uint32_t actorFormId = pFormIdComponent ? pFormIdComponent->Id : remoteComponent.CachedRefId;
+    Actor* pActor = Cast<Actor>(TESForm::GetById(actorFormId));
 
     if (!pActor)
         return;
