@@ -2,6 +2,7 @@
 
 #include <World.h>
 
+#include <Events/DisconnectedEvent.h>
 #include <Events/UpdateEvent.h>
 #include <Events/SpellCastEvent.h>
 #include <Events/InterruptCastEvent.h>
@@ -37,6 +38,7 @@ MagicService::MagicService(World& aWorld, entt::dispatcher& aDispatcher, Transpo
     , m_transport(aTransport)
 {
     m_updateConnection = m_dispatcher.sink<UpdateEvent>().connect<&MagicService::OnUpdate>(this);
+    m_disconnectedConnection = m_dispatcher.sink<DisconnectedEvent>().connect<&MagicService::OnDisconnected>(this);
     m_spellCastEventConnection = m_dispatcher.sink<SpellCastEvent>().connect<&MagicService::OnSpellCastEvent>(this);
     m_notifySpellCastConnection = m_dispatcher.sink<NotifySpellCast>().connect<&MagicService::OnNotifySpellCast>(this);
     m_interruptCastEventConnection = m_dispatcher.sink<InterruptCastEvent>().connect<&MagicService::OnInterruptCastEvent>(this);
@@ -55,6 +57,15 @@ void MagicService::OnUpdate(const UpdateEvent& acEvent) noexcept
     ApplyQueuedEffects();
 
     UpdateRevealOtherPlayersEffect();
+}
+
+void MagicService::OnDisconnected(const DisconnectedEvent&) noexcept
+{
+    while (!m_queuedEffects.empty())
+        m_queuedEffects.pop();
+
+    while (!m_queuedRemoteEffects.empty())
+        m_queuedRemoteEffects.pop();
 }
 
 void MagicService::OnSpellCastEvent(const SpellCastEvent& acEvent) const noexcept
