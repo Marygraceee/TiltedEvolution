@@ -171,9 +171,12 @@ void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChan
         if (droppedIt != droppedView.end())
         {
             const auto& droppedItem = droppedView.get<DroppedItemComponent>(*droppedIt);
-            correction.DroppedObject = droppedItem.Data;
-            if (droppedItem.OriginPlayerId != acMessage.pPlayer->GetId())
-                correction.DroppedObject.LocalReferenceId = 0;
+            if (droppedItem.Data.CurrentInventory.Entries.size() == 1)
+            {
+                correction.DroppedObject = droppedItem.Data;
+                if (droppedItem.OriginPlayerId != acMessage.pPlayer->GetId())
+                    correction.DroppedObject.LocalReferenceId = 0;
+            }
         }
 
         acMessage.pPlayer->Send(correction);
