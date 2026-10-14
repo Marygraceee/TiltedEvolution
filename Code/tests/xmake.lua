@@ -3,7 +3,7 @@ target("TPTests")
     set_kind("binary")
     set_group("Tests")
     add_includedirs(
-        ".", "../encoding")
+        ".", "../encoding", "../server", "../../Libraries/TiltedConnect/Code/connect/include")
     add_headerfiles("**.h")
     add_files("*.cpp")
     -- Has no game dependencies, so the client's remote playback timing can be tested here
@@ -14,4 +14,6 @@ target("TPTests")
         "hopscotch-map",
         "catch2",
         "mimalloc",
-        "glm")
+        "glm",
+        "entt",
+        "gamenetworkingsockets")

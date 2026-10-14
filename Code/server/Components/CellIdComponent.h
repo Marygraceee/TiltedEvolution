@@ -8,6 +8,12 @@
 
 struct CellIdComponent
 {
+    enum class RangeTransition
+    {
+        None,
+        Entered,
+        Left
+    };
     CellIdComponent() {}
 
     CellIdComponent(GameId aCellId)
@@ -39,6 +45,16 @@ struct CellIdComponent
             return false;
 
         return GridCellCoords::IsCellInGridCell(acRhs.CenterCoords, CenterCoords, aIsDragon);
+    }
+
+    static RangeTransition GetRangeTransition(const CellIdComponent& acPrevious, const CellIdComponent& acCurrent, const CellIdComponent& acOther, const bool aIsDragon) noexcept
+    {
+        const bool wasInRange = (acPrevious.WorldSpaceId || acPrevious.Cell) && acPrevious.IsInRange(acOther, aIsDragon);
+        const bool isInRange = acCurrent.IsInRange(acOther, aIsDragon);
+        if (wasInRange == isInRange)
+            return RangeTransition::None;
+
+        return isInRange ? RangeTransition::Entered : RangeTransition::Left;
     }
 
     GameId Cell{};
