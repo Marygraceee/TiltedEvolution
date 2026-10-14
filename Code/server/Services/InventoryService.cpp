@@ -151,6 +151,34 @@ void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChan
         }
     }
 
+    const auto rejectDroppedItemPickup = [&]()
+    {
+        if (message.Drop || message.Item.Count <= 0 || dropId == 0)
+            return;
+
+        NotifyInventoryChanges correction;
+        correction.ServerId = message.ServerId;
+        correction.OwnershipEpoch = message.OwnershipEpoch;
+        correction.Item = message.Item;
+        correction.Item.Count = -correction.Item.Count;
+        correction.DropId = dropId;
+        correction.HasDroppedObject = true;
+        correction.DroppedObject.IsDroppedItem = true;
+        correction.DroppedObject.ServerId = dropId;
+        correction.DroppedObject.CurrentInventory.Entries.push_back(message.Item);
+        correction.DroppedObject.CurrentInventory.Entries.back().Count = 0;
+
+        if (droppedIt != droppedView.end())
+        {
+            const auto& droppedItem = droppedView.get<DroppedItemComponent>(*droppedIt);
+            correction.DroppedObject = droppedItem.Data;
+            if (droppedItem.OriginPlayerId != acMessage.pPlayer->GetId())
+                correction.DroppedObject.LocalReferenceId = 0;
+        }
+
+        acMessage.pPlayer->Send(correction);
+    };
+
     if (dropId != 0)
     {
         if (message.Item.Count <= 0)
@@ -166,17 +194,26 @@ void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChan
         }
 
         if (droppedIt == droppedView.end())
+        {
+            rejectDroppedItemPickup();
             return;
+        }
 
         const auto& droppedItem = droppedView.get<DroppedItemComponent>(*droppedIt);
         const auto& droppedData = droppedItem.Data;
         if (droppedData.CurrentInventory.Entries.size() != 1)
+        {
+            rejectDroppedItemPickup();
             return;
+        }
 
         const auto& droppedEntry = droppedData.CurrentInventory.Entries.front();
         const CellIdComponent droppedCell{droppedData.CellId, droppedData.WorldSpaceId, droppedData.CurrentCoords};
         if (!droppedEntry.CanBeMerged(message.Item) || message.Item.Count > droppedEntry.Count || !acMessage.pPlayer->GetCellComponent().IsInRange(droppedCell, false))
+        {
+            rejectDroppedItemPickup();
             return;
+        }
     }
 
     if (message.Drop && (message.Item.Count >= 0 || message.Item.Count == std::numeric_limits<int32_t>::min()))
