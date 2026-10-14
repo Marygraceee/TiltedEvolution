@@ -118,6 +118,12 @@ private:
     entt::dispatcher& m_dispatcher;
     TransportService& m_transport;
 
+    struct PendingHealthChange
+    {
+        uint32_t OwnershipEpoch{};
+        float DeltaHealth{};
+    };
+
     //! @brief Server ids and collected health changes.
-    Map<uint32_t, float> m_smallHealthChanges;
+    Map<uint32_t, PendingHealthChange> m_smallHealthChanges;
 };

@@ -91,7 +91,12 @@ void ActorValueService::OnActorRemoved(const ActorRemovedEvent& acEvent) noexcep
         });
 
     if (it != std::end(view))
+    {
+        if (const auto serverId = Utils::GetServerId(*it))
+            m_smallHealthChanges.erase(*serverId);
+
         m_world.remove<ActorValuesComponent>(*it);
+    }
 }
 
 void ActorValueService::OnUpdate(const UpdateEvent& acEvent) noexcept
@@ -186,23 +191,44 @@ void ActorValueService::OnHealthChange(const HealthChangeEvent& acEvent) noexcep
     }
 
     uint32_t serverId = serverIdRes.value();
+    const auto* pLocalComponent = m_world.try_get<LocalComponent>(*hitteeIt);
+    const auto* pRemoteComponent = m_world.try_get<RemoteComponent>(*hitteeIt);
+    uint32_t ownershipEpoch = 0;
+    if (pRemoteComponent)
+        ownershipEpoch = pRemoteComponent->OwnershipEpoch;
+    else if (pLocalComponent)
+        ownershipEpoch = pLocalComponent->OwnershipEpoch;
+
+    if (ownershipEpoch == 0)
+        return;
 
     if (acEvent.DeltaHealth > -1.0f && acEvent.DeltaHealth < 1.0f)
     {
-        if (m_smallHealthChanges.find(serverId) == m_smallHealthChanges.end())
-            m_smallHealthChanges[serverId] = acEvent.DeltaHealth;
+        auto& pending = m_smallHealthChanges[serverId];
+        if (pending.OwnershipEpoch != ownershipEpoch)
+            pending = {ownershipEpoch, acEvent.DeltaHealth};
         else
-            m_smallHealthChanges[serverId] += acEvent.DeltaHealth;
+            pending.DeltaHealth += acEvent.DeltaHealth;
         return;
     }
 
     RequestHealthChangeBroadcast requestHealthChange;
     requestHealthChange.Id = serverId;
+    requestHealthChange.OwnershipEpoch = ownershipEpoch;
     requestHealthChange.DeltaHealth = acEvent.DeltaHealth;
+
+    const auto pendingIt = m_smallHealthChanges.find(serverId);
+    if (pendingIt != m_smallHealthChanges.end())
+    {
+        if (pendingIt->second.OwnershipEpoch == ownershipEpoch)
+            requestHealthChange.DeltaHealth += pendingIt->second.DeltaHealth;
+
+        m_smallHealthChanges.erase(pendingIt);
+    }
 
     m_transport.Send(requestHealthChange);
 
-    spdlog::debug("Sent out delta health through collection: {:X}:{:f}", serverId, acEvent.DeltaHealth);
+    spdlog::debug("Sent out delta health through collection: {:X}:{:f}", serverId, requestHealthChange.DeltaHealth);
 }
 
 void ActorValueService::RunSmallHealthUpdates() noexcept
@@ -222,11 +248,12 @@ void ActorValueService::RunSmallHealthUpdates() noexcept
         {
             RequestHealthChangeBroadcast requestHealthChange;
             requestHealthChange.Id = value.first;
-            requestHealthChange.DeltaHealth = value.second;
+            requestHealthChange.OwnershipEpoch = value.second.OwnershipEpoch;
+            requestHealthChange.DeltaHealth = value.second.DeltaHealth;
 
             m_transport.Send(requestHealthChange);
 
-            spdlog::debug("Sent out delta health through timer, {:X}:{:f}", value.first, value.second);
+            spdlog::debug("Sent out delta health through timer, {:X}:{:f}", value.first, value.second.DeltaHealth);
         }
 
         m_smallHealthChanges.clear();
@@ -288,7 +315,23 @@ void ActorValueService::RunActorValuesUpdates() noexcept
 
 void ActorValueService::OnHealthChangeBroadcast(const NotifyHealthChangeBroadcast& acMessage) const noexcept
 {
-    Actor* pActor = Utils::GetByServerId<Actor>(acMessage.Id);
+    const auto entity = Utils::FindEntityByServerId(acMessage.Id);
+    if (!entity)
+        return;
+
+    const auto* pRemoteComponent = m_world.try_get<RemoteComponent>(*entity);
+    const auto* pLocalComponent = m_world.try_get<LocalComponent>(*entity);
+    uint32_t ownershipEpoch = 0;
+    if (pRemoteComponent)
+        ownershipEpoch = pRemoteComponent->OwnershipEpoch;
+    else if (pLocalComponent)
+        ownershipEpoch = pLocalComponent->OwnershipEpoch;
+
+    if (ownershipEpoch == 0 || ownershipEpoch != acMessage.OwnershipEpoch)
+        return;
+
+    const auto* pFormIdComponent = m_world.try_get<FormIdComponent>(*entity);
+    Actor* pActor = pFormIdComponent ? Cast<Actor>(TESForm::GetById(pFormIdComponent->Id)) : nullptr;
     if (!pActor)
     {
         spdlog::error("{}: could not find actor server id {:X}", __FUNCTION__, acMessage.Id);

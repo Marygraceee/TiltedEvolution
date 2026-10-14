@@ -24,6 +24,8 @@
 #include <Messages/NotifyDrawWeapon.h>
 #include <Messages/NotifyEquipmentChanges.h>
 #include <Messages/RequestInventoryChanges.h>
+#include <Messages/RequestHealthChangeBroadcast.h>
+#include <Messages/NotifyHealthChangeBroadcast.h>
 #include <Messages/RequestQuestSnapshot.h>
 #include <Messages/RequestFactionsChanges.h>
 #include <Messages/NotifyInventoryChanges.h>
@@ -56,6 +58,41 @@ TEST_CASE("Movement ownership epochs round trip", "[encoding.movement]")
     received.Deserialize(reader);
 
     REQUIRE(received == sent);
+}
+
+TEST_CASE("Health change messages preserve ownership epochs", "[encoding.health_change]")
+{
+    RequestHealthChangeBroadcast request{};
+    request.Id = 11;
+    request.OwnershipEpoch = 271;
+    request.DeltaHealth = -17.5f;
+
+    Buffer requestBuffer(1000);
+    Buffer::Writer requestWriter(&requestBuffer);
+    request.Serialize(requestWriter);
+
+    Buffer::Reader requestReader(&requestBuffer);
+    const ClientMessageFactory clientFactory;
+    auto requestMessage = clientFactory.Extract(requestReader);
+    REQUIRE(requestMessage);
+    auto decodedRequest = CastUnique<RequestHealthChangeBroadcast>(std::move(requestMessage));
+    REQUIRE(*decodedRequest == request);
+
+    NotifyHealthChangeBroadcast notify{};
+    notify.Id = request.Id;
+    notify.OwnershipEpoch = request.OwnershipEpoch;
+    notify.DeltaHealth = request.DeltaHealth;
+
+    Buffer notifyBuffer(1000);
+    Buffer::Writer notifyWriter(&notifyBuffer);
+    notify.Serialize(notifyWriter);
+
+    Buffer::Reader notifyReader(&notifyBuffer);
+    const ServerMessageFactory serverFactory;
+    auto notifyMessage = serverFactory.Extract(notifyReader);
+    REQUIRE(notifyMessage);
+    auto decodedNotify = CastUnique<NotifyHealthChangeBroadcast>(std::move(notifyMessage));
+    REQUIRE(*decodedNotify == notify);
 }
 
 TEST_CASE("NPC package messages preserve ownership epochs", "[encoding.package]")

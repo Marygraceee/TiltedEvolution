@@ -10,6 +10,7 @@
 #include <Messages/NotifyActorMaxValueChanges.h>
 #include <Messages/NotifyHealthChangeBroadcast.h>
 #include <Messages/NotifyDeathStateChange.h>
+#include <cmath>
 
 ActorValueService::ActorValueService(World& aWorld, entt::dispatcher& aDispatcher) noexcept
     : m_world(aWorld)
@@ -79,23 +80,32 @@ void ActorValueService::OnHealthChangeBroadcast(const PacketEvent<RequestHealthC
     auto& message = acMessage.Packet;
 
     // TODO(cosideci): should server side health not be updated?
-    auto actorValuesView = m_world.view<ActorValuesComponent, OwnerComponent>();
+    if (!std::isfinite(message.DeltaHealth))
+        return;
+
+    auto actorValuesView = m_world.view<ActorValuesComponent, OwnerComponent, CharacterComponent, CellIdComponent>();
 
     auto it = actorValuesView.find(static_cast<entt::entity>(message.Id));
+    if (it == actorValuesView.end())
+        return;
 
-    if (it != actorValuesView.end())
-    {
-        auto& actorValuesComponent = actorValuesView.get<ActorValuesComponent>(*it);
-        auto currentHealth = actorValuesComponent.CurrentActorValues.ActorValuesList[24];
-        actorValuesComponent.CurrentActorValues.ActorValuesList[24] = currentHealth - message.DeltaHealth;
-    }
+    const auto& ownerComponent = actorValuesView.get<OwnerComponent>(*it);
+    const auto& characterComponent = actorValuesView.get<CharacterComponent>(*it);
+    const auto& cellComponent = actorValuesView.get<CellIdComponent>(*it);
+    if (message.OwnershipEpoch == 0 || ownerComponent.OwnershipEpoch != message.OwnershipEpoch ||
+        !acMessage.pPlayer->GetCellComponent().IsInRange(cellComponent, characterComponent.IsDragon()))
+        return;
+
+    auto& actorValuesComponent = actorValuesView.get<ActorValuesComponent>(*it);
+    auto currentHealth = actorValuesComponent.CurrentActorValues.ActorValuesList[24];
+    actorValuesComponent.CurrentActorValues.ActorValuesList[24] = currentHealth + message.DeltaHealth;
 
     NotifyHealthChangeBroadcast notify;
     notify.Id = message.Id;
+    notify.OwnershipEpoch = message.OwnershipEpoch;
     notify.DeltaHealth = message.DeltaHealth;
 
-    const entt::entity cEntity = static_cast<entt::entity>(message.Id);
-    if (!GameServer::Get()->SendToPlayersInRange(notify, cEntity, acMessage.pPlayer))
+    if (!GameServer::Get()->SendToPlayersInRange(notify, *it, acMessage.pPlayer))
         spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
 }
 
