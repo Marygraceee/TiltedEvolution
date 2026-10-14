@@ -136,6 +136,12 @@ void MagicService::OnNotifySpellCast(const NotifySpellCast& acMessage) const noe
 {
     using CS = MagicSystem::CastingSource;
 
+    if (acMessage.CastingSource < 0 || acMessage.CastingSource >= 4)
+    {
+        spdlog::warn("{}: could not find casting source {}", __FUNCTION__, acMessage.CastingSource);
+        return;
+    }
+
     auto remoteView = m_world.view<RemoteComponent, FormIdComponent>();
     const auto remoteIt = std::find_if(
         std::begin(remoteView), std::end(remoteView),
@@ -154,17 +160,13 @@ void MagicService::OnNotifySpellCast(const NotifySpellCast& acMessage) const noe
     auto formIdComponent = remoteView.get<FormIdComponent>(*remoteIt);
     TESForm* pForm = TESForm::GetById(formIdComponent.Id);
     Actor* pActor = Cast<Actor>(pForm);
+    if (!pActor)
+        return;
 
     pActor->GenerateMagicCasters();
 
     // Only left hand casters need dual casting (?)
     pActor->casters[CS::LEFT_HAND]->SetDualCasting(acMessage.IsDualCasting);
-
-    if (acMessage.CastingSource >= 4)
-    {
-        spdlog::warn("{}: could not find casting source {}", __FUNCTION__, acMessage.CastingSource);
-        return;
-    }
 
     MagicItem* pSpell = nullptr;
 
@@ -271,7 +273,7 @@ void MagicService::OnInterruptCastEvent(const InterruptCastEvent& acEvent) const
 
 void MagicService::OnNotifyInterruptCast(const NotifyInterruptCast& acMessage) const noexcept
 {
-    if (acMessage.CastingSource >= 4)
+    if (acMessage.CastingSource < 0 || acMessage.CastingSource >= 4)
     {
         spdlog::warn("{}: could not find casting source {}", __FUNCTION__, acMessage.CastingSource);
         return;
@@ -296,6 +298,8 @@ void MagicService::OnNotifyInterruptCast(const NotifyInterruptCast& acMessage) c
 
     const TESForm* pForm = TESForm::GetById(formIdComponent.Id);
     Actor* pActor = Cast<Actor>(pForm);
+    if (!pActor)
+        return;
 
     pActor->GenerateMagicCasters();
 
