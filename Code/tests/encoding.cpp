@@ -20,6 +20,7 @@
 #include <Messages/AssignObjectsResponse.h>
 #include <Messages/AssignObjectsRequest.h>
 #include <Messages/CharacterSpawnRequest.h>
+#include <Messages/DrawWeaponRequest.h>
 #include <Messages/RequestInventoryChanges.h>
 #include <Messages/RequestQuestSnapshot.h>
 #include <Messages/RequestFactionsChanges.h>
@@ -151,6 +152,25 @@ TEST_CASE("Respawn request preserves ownership epoch", "[encoding.respawn]")
     auto message = clientFactory.Extract(reader);
     REQUIRE(message);
     auto decodedRequest = CastUnique<RequestRespawn>(std::move(message));
+    REQUIRE(*decodedRequest == request);
+}
+
+TEST_CASE("Weapon state request preserves ownership epoch", "[encoding.weapon_state]")
+{
+    DrawWeaponRequest request{};
+    request.Id = 11;
+    request.OwnershipEpoch = 271;
+    request.IsWeaponDrawn = true;
+
+    Buffer buffer(1000);
+    Buffer::Writer writer(&buffer);
+    request.Serialize(writer);
+
+    Buffer::Reader reader(&buffer);
+    const ClientMessageFactory clientFactory;
+    auto message = clientFactory.Extract(reader);
+    REQUIRE(message);
+    auto decodedRequest = CastUnique<DrawWeaponRequest>(std::move(message));
     REQUIRE(*decodedRequest == request);
 }
 

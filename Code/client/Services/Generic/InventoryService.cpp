@@ -583,6 +583,7 @@ void InventoryService::RunWeaponStateUpdates() noexcept
 
             DrawWeaponRequest request;
             request.Id = localComponent.Id;
+            request.OwnershipEpoch = localComponent.OwnershipEpoch;
             request.IsWeaponDrawn = isWeaponDrawn;
 
             m_transport.Send(request);
