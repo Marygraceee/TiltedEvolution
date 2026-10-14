@@ -349,7 +349,7 @@ void CharacterService::OnDisconnected(const DisconnectedEvent& acDisconnectedEve
             pActor->GetExtension()->SetRemote(false);
     }
 
-    m_world.clear<WaitingForAssignmentComponent, LocalComponent, RemoteComponent>();
+    m_world.clear<WaitingForAssignmentComponent, LocalAnimationComponent, LocalComponent, RemoteComponent, EarlyAnimationBufferComponent>();
 
     for (const auto& [formId, pickFormId] : m_pendingLeveledConforms)
     {
