@@ -102,6 +102,7 @@ void MagicService::OnSpellCastEvent(const SpellCastEvent& acEvent) const noexcep
     SpellCastRequest request{};
 
     request.CasterId = localComponent.Id;
+    request.OwnershipEpoch = localComponent.OwnershipEpoch;
     request.CastingSource = acEvent.pCaster->GetCastingSource();
     request.IsDualCasting = acEvent.pCaster->GetIsDualCasting();
 
@@ -136,7 +137,13 @@ void MagicService::OnNotifySpellCast(const NotifySpellCast& acMessage) const noe
     using CS = MagicSystem::CastingSource;
 
     auto remoteView = m_world.view<RemoteComponent, FormIdComponent>();
-    const auto remoteIt = std::find_if(std::begin(remoteView), std::end(remoteView), [remoteView, Id = acMessage.CasterId](auto entity) { return remoteView.get<RemoteComponent>(entity).Id == Id; });
+    const auto remoteIt = std::find_if(
+        std::begin(remoteView), std::end(remoteView),
+        [remoteView, &acMessage](auto entity)
+        {
+            const auto& remoteComponent = remoteView.get<RemoteComponent>(entity);
+            return remoteComponent.Id == acMessage.CasterId && remoteComponent.OwnershipEpoch == acMessage.OwnershipEpoch;
+        });
 
     if (remoteIt == std::end(remoteView))
     {

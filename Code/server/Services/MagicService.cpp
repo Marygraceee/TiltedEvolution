@@ -2,6 +2,7 @@
 
 #include <GameServer.h>
 #include <World.h>
+#include <Components.h>
 
 #include <Messages/SpellCastRequest.h>
 #include <Messages/InterruptCastRequest.h>
@@ -25,15 +26,20 @@ void MagicService::OnSpellCastRequest(const PacketEvent<SpellCastRequest>& acMes
 {
     auto& message = acMessage.Packet;
 
+    auto view = m_world.view<OwnerComponent>();
+    const auto it = view.find(static_cast<entt::entity>(message.CasterId));
+    if (it == view.end() || !view.get<OwnerComponent>(*it).IsCurrentOwner(acMessage.pPlayer, message.OwnershipEpoch))
+        return;
+
     NotifySpellCast notify;
     notify.CasterId = message.CasterId;
+    notify.OwnershipEpoch = message.OwnershipEpoch;
     notify.SpellFormId = message.SpellFormId;
     notify.CastingSource = message.CastingSource;
     notify.IsDualCasting = message.IsDualCasting;
     notify.DesiredTarget = message.DesiredTarget;
 
-    const auto entity = static_cast<entt::entity>(message.CasterId);
-    if (!GameServer::Get()->SendToPlayersInRange(notify, entity, acMessage.GetSender()))
+    if (!GameServer::Get()->SendToPlayersInRange(notify, *it, acMessage.GetSender()))
         spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
 }
 

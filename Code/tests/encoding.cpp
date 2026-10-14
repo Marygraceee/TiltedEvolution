@@ -26,6 +26,8 @@
 #include <Messages/RequestInventoryChanges.h>
 #include <Messages/RequestHealthChangeBroadcast.h>
 #include <Messages/NotifyHealthChangeBroadcast.h>
+#include <Messages/SpellCastRequest.h>
+#include <Messages/NotifySpellCast.h>
 #include <Messages/RequestQuestSnapshot.h>
 #include <Messages/RequestFactionsChanges.h>
 #include <Messages/NotifyInventoryChanges.h>
@@ -92,6 +94,47 @@ TEST_CASE("Health change messages preserve ownership epochs", "[encoding.health_
     auto notifyMessage = serverFactory.Extract(notifyReader);
     REQUIRE(notifyMessage);
     auto decodedNotify = CastUnique<NotifyHealthChangeBroadcast>(std::move(notifyMessage));
+    REQUIRE(*decodedNotify == notify);
+}
+
+TEST_CASE("Spell cast messages preserve ownership epochs", "[encoding.spell_cast]")
+{
+    SpellCastRequest request{};
+    request.CasterId = 11;
+    request.OwnershipEpoch = 271;
+    request.SpellFormId = GameId{3, 0x1234};
+    request.CastingSource = 2;
+    request.IsDualCasting = true;
+    request.DesiredTarget = 42;
+
+    Buffer requestBuffer(1000);
+    Buffer::Writer requestWriter(&requestBuffer);
+    request.Serialize(requestWriter);
+
+    Buffer::Reader requestReader(&requestBuffer);
+    const ClientMessageFactory clientFactory;
+    auto requestMessage = clientFactory.Extract(requestReader);
+    REQUIRE(requestMessage);
+    auto decodedRequest = CastUnique<SpellCastRequest>(std::move(requestMessage));
+    REQUIRE(*decodedRequest == request);
+
+    NotifySpellCast notify{};
+    notify.CasterId = request.CasterId;
+    notify.OwnershipEpoch = request.OwnershipEpoch;
+    notify.SpellFormId = request.SpellFormId;
+    notify.CastingSource = request.CastingSource;
+    notify.IsDualCasting = request.IsDualCasting;
+    notify.DesiredTarget = request.DesiredTarget;
+
+    Buffer notifyBuffer(1000);
+    Buffer::Writer notifyWriter(&notifyBuffer);
+    notify.Serialize(notifyWriter);
+
+    Buffer::Reader notifyReader(&notifyBuffer);
+    const ServerMessageFactory serverFactory;
+    auto notifyMessage = serverFactory.Extract(notifyReader);
+    REQUIRE(notifyMessage);
+    auto decodedNotify = CastUnique<NotifySpellCast>(std::move(notifyMessage));
     REQUIRE(*decodedNotify == notify);
 }
 
