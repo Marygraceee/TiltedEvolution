@@ -3,6 +3,7 @@
 void RequestRespawn::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter) const noexcept
 {
     Serialization::WriteVarInt(aWriter, ActorId);
+    Serialization::WriteVarInt(aWriter, OwnershipEpoch);
     Serialization::WriteString(aWriter, AppearanceBuffer);
     Serialization::WriteVarInt(aWriter, ChangeFlags);
 }
@@ -12,6 +13,7 @@ void RequestRespawn::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) noex
     ClientMessage::DeserializeRaw(aReader);
 
     ActorId = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
+    OwnershipEpoch = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
     AppearanceBuffer = Serialization::ReadString(aReader);
     ChangeFlags = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
 }

@@ -26,6 +26,7 @@
 #include <Messages/NotifyInventoryChanges.h>
 #include <Messages/NotifyQuestSnapshot.h>
 #include <Messages/NotifyFactionsChanges.h>
+#include <Messages/RequestRespawn.h>
 #include <Messages/NewPackageRequest.h>
 #include <Messages/NotifyNewPackage.h>
 #include <Structs/Vector2_NetQuantize.h>
@@ -131,6 +132,26 @@ TEST_CASE("Faction messages preserve ownership epochs", "[encoding.factions]")
     REQUIRE(notifyMessage);
     auto decodedNotify = CastUnique<NotifyFactionsChanges>(std::move(notifyMessage));
     REQUIRE(*decodedNotify == notify);
+}
+
+TEST_CASE("Respawn request preserves ownership epoch", "[encoding.respawn]")
+{
+    RequestRespawn request{};
+    request.ActorId = 11;
+    request.OwnershipEpoch = 271;
+    request.AppearanceBuffer = "appearance";
+    request.ChangeFlags = 5;
+
+    Buffer buffer(1000);
+    Buffer::Writer writer(&buffer);
+    request.Serialize(writer);
+
+    Buffer::Reader reader(&buffer);
+    const ClientMessageFactory clientFactory;
+    auto message = clientFactory.Extract(reader);
+    REQUIRE(message);
+    auto decodedRequest = CastUnique<RequestRespawn>(std::move(message));
+    REQUIRE(*decodedRequest == request);
 }
 
 TEST_CASE("Grid cell ranges handle integer boundaries", "[encoding.grid_cell]")

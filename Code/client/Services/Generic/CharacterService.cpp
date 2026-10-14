@@ -927,6 +927,7 @@ void CharacterService::OnNotifyRespawn(const NotifyRespawn& acMessage) const noe
     }
 
     const auto cId = *entityIt;
+    const auto ownershipEpoch = view.get<RemoteComponent>(cId).OwnershipEpoch;
 
     auto& formIdComponent = view.get<FormIdComponent>(cId);
     CancelServerAssignment(*entityIt, formIdComponent.Id);
@@ -941,6 +942,7 @@ void CharacterService::OnNotifyRespawn(const NotifyRespawn& acMessage) const noe
 
     RequestRespawn request;
     request.ActorId = acMessage.ActorId;
+    request.OwnershipEpoch = ownershipEpoch;
 
     m_transport.Send(request);
 }
@@ -950,6 +952,12 @@ void CharacterService::OnBeastFormChange(const BeastFormChangeEvent& acEvent) co
     auto view = m_world.view<FormIdComponent>();
 
     const auto it = std::find_if(view.begin(), view.end(), [view](auto entity) { return view.get<FormIdComponent>(entity).Id == 0x14; });
+    if (it == view.end())
+        return;
+
+    const auto* pLocalComponent = m_world.try_get<LocalComponent>(*it);
+    if (!pLocalComponent)
+        return;
 
     std::optional<uint32_t> serverIdRes = Utils::GetServerId(*it);
     if (!serverIdRes.has_value())
@@ -962,6 +970,7 @@ void CharacterService::OnBeastFormChange(const BeastFormChangeEvent& acEvent) co
 
     RequestRespawn request;
     request.ActorId = serverId;
+    request.OwnershipEpoch = pLocalComponent->OwnershipEpoch;
 
     Actor* pActor = Utils::GetByServerId<Actor>(serverId);
     if (!pActor)

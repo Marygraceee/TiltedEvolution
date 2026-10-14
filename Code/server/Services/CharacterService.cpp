@@ -592,12 +592,15 @@ void CharacterService::OnRequestRespawn(const PacketEvent<RequestRespawn>& acMes
 
     auto& ownerComponent = view.get<OwnerComponent>(*it);
 
-    // Replay cache needs to be cleared when a character respawns
-    if (auto* pAnimationComponent = m_world.try_get<AnimationComponent>(*it))
-        pAnimationComponent->ActionsReplayCache.Clear();
-
     if (ownerComponent.GetOwner() == acMessage.pPlayer)
     {
+        if (!ownerComponent.IsCurrentOwner(acMessage.pPlayer, acMessage.Packet.OwnershipEpoch))
+            return;
+
+        // Replay cache needs to be cleared when a character respawns
+        if (auto* pAnimationComponent = m_world.try_get<AnimationComponent>(*it))
+            pAnimationComponent->ActionsReplayCache.Clear();
+
         if (!acMessage.Packet.AppearanceBuffer.empty())
         {
             auto& characterComponent = view.get<CharacterComponent>(*it);
