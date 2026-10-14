@@ -27,11 +27,28 @@
 #include <Structs/Vector2_NetQuantize.h>
 #include <Structs/GridCellCoords.h>
 #include <Structs/ObjectData.h>
+#include <Structs/Movement.h>
 
 #include <TiltedCore/Math.hpp>
 #include <TiltedCore/Platform.hpp>
 
 using namespace TiltedPhoques;
+
+TEST_CASE("Movement ownership epochs round trip", "[encoding.movement]")
+{
+    Movement sent{};
+    sent.OwnershipEpoch = 271;
+
+    Buffer buffer(1000);
+    Buffer::Writer writer(&buffer);
+    sent.Serialize(writer);
+
+    Movement received{};
+    Buffer::Reader reader(&buffer);
+    received.Deserialize(reader);
+
+    REQUIRE(received == sent);
+}
 
 TEST_CASE("Grid cell ranges handle integer boundaries", "[encoding.grid_cell]")
 {

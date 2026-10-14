@@ -669,6 +669,10 @@ void CharacterService::OnReferencesMoveRequest(const ServerReferencesMoveRequest
         if (itor == std::end(view))
             continue;
 
+        const auto& remoteComponent = view.get<RemoteComponent>(*itor);
+        if (remoteComponent.OwnershipEpoch != movement.OwnershipEpoch)
+            continue;
+
         auto& interpolationComponent = view.get<InterpolationComponent>(*itor);
 
         InterpolationComponent::TimePoint point;
@@ -1811,7 +1815,9 @@ void CharacterService::RunLocalUpdates() const noexcept
             movementMessage.Updates.clear();
         }
 
-        AnimationSystem::SerializeMovement(m_world, pActor, movementMessage.Updates[localComponent.Id]);
+        auto& movement = movementMessage.Updates[localComponent.Id];
+        AnimationSystem::SerializeMovement(m_world, pActor, movement);
+        movement.OwnershipEpoch = localComponent.OwnershipEpoch;
     }
 
     if (!actionsMessage.Actions.empty())

@@ -390,6 +390,10 @@ void CharacterService::OnReferencesMoveRequest(const PacketEvent<ClientReference
             continue;
         }
 
+        const auto* pOwnerComponent = m_world.try_get<OwnerComponent>(*itor);
+        if (!pOwnerComponent || !pOwnerComponent->IsCurrentOwner(acMessage.pPlayer, movement.OwnershipEpoch))
+            continue;
+
         auto& movementComponent = view.get<MovementComponent>(*itor);
         auto& cellIdComponent = view.get<CellIdComponent>(*itor);
         const auto& characterComponent = view.get<CharacterComponent>(*itor);
