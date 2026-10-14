@@ -69,6 +69,7 @@ void ActorValueService::OnLocalComponentAdded(entt::registry& aRegistry, const e
 void ActorValueService::OnDisconnected(const DisconnectedEvent& acEvent) noexcept
 {
     // TODO: this crashes sometimes, no clue why
+    m_smallHealthChanges.clear();
     m_world.clear<ActorValuesComponent>();
 }
 
@@ -397,6 +398,9 @@ void ActorValueService::OnDeathStateChange(const NotifyDeathStateChange& acMessa
             cEntity.has_value(), cEntity && m_world.all_of<FormIdComponent>(*cEntity), cEntity && m_world.all_of<WaitingFor3D>(*cEntity));
         return;
     }
+
+    if (auto* pWaitingFor3D = m_world.try_get<WaitingFor3D>(*it); pWaitingFor3D && !pWaitingFor3D->SpawnRequest.IsPlayer)
+        pWaitingFor3D->SpawnRequest.IsDead = acMessage.IsDead;
 
     auto& formIdComponent = view.get<FormIdComponent>(*it);
     Actor* pActor = Cast<Actor>(TESForm::GetById(formIdComponent.Id));

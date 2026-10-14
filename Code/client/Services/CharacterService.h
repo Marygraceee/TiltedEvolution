@@ -64,7 +64,7 @@ struct CharacterService
     void OnActorRemoved(const ActorRemovedEvent& acEvent) noexcept;
     void OnUpdate(const UpdateEvent& acUpdateEvent) noexcept;
     void OnConnected(const ConnectedEvent& acConnectedEvent) const noexcept;
-    void OnDisconnected(const DisconnectedEvent& acDisconnectedEvent) const noexcept;
+    void OnDisconnected(const DisconnectedEvent& acDisconnectedEvent) noexcept;
     void OnAssignCharacter(const AssignCharacterResponse& acMessage) noexcept;
     void OnCharacterSpawn(const CharacterSpawnRequest& acMessage) const noexcept;
     void OnReferencesMoveRequest(const ServerReferencesMoveRequest& acMessage) const noexcept;

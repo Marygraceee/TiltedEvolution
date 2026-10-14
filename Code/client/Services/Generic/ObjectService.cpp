@@ -134,6 +134,10 @@ bool ShouldSyncObject(const TESObjectREFR* apObject, const Set<const TESObjectRE
 void ObjectService::OnDisconnected(const DisconnectedEvent&) noexcept
 {
     // TODO(cosideci): clear object components
+    const auto view = m_world.view<ObjectComponent>();
+    const Vector<entt::entity> entities(view.begin(), view.end());
+    for (const entt::entity entity : entities)
+        m_world.destroy(entity);
 }
 
 void ObjectService::OnCellChange(const CellChangeEvent& acEvent) noexcept
