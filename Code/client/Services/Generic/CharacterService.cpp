@@ -257,7 +257,13 @@ void CharacterService::OnActorAdded(const ActorAddedEvent& acEvent) noexcept
         entity = *it;
     }
     else
-        entity = m_world.create();
+    {
+        auto localView = m_world.view<LocalComponent>();
+        const auto localIt = std::find_if(
+            localView.begin(), localView.end(), [&acEvent, localView](entt::entity entity) { return localView.get<LocalComponent>(entity).CachedRefId == acEvent.FormId; });
+
+        entity = localIt != localView.end() ? *localIt : m_world.create();
+    }
 
     m_world.emplace_or_replace<FormIdComponent>(entity, acEvent.FormId);
     m_world.emplace_or_replace<EarlyAnimationBufferComponent>(entity);
@@ -349,7 +355,13 @@ void CharacterService::OnDisconnected(const DisconnectedEvent& acDisconnectedEve
             pActor->GetExtension()->SetRemote(false);
     }
 
+    auto unloadedLocalView = m_world.view<LocalComponent>(entt::exclude<FormIdComponent>);
+    Vector<entt::entity> unloadedLocalEntities(unloadedLocalView.begin(), unloadedLocalView.end());
+
     m_world.clear<WaitingForAssignmentComponent, LocalAnimationComponent, LocalComponent, RemoteComponent, EarlyAnimationBufferComponent>();
+
+    for (entt::entity entity : unloadedLocalEntities)
+        m_world.destroy(entity);
 
     for (const auto& [formId, pickFormId] : m_pendingLeveledConforms)
     {
@@ -466,7 +478,7 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
         }
         m_world.remove<EarlyAnimationBufferComponent>(cEntity);
 
-        auto& localComponent = m_world.emplace_or_replace<LocalComponent>(cEntity, acMessage.ServerId, acMessage.OwnershipEpoch);
+        auto& localComponent = m_world.emplace_or_replace<LocalComponent>(cEntity, acMessage.ServerId, acMessage.OwnershipEpoch, formIdComponent->Id);
         localComponent.IsDead = acMessage.IsDead;
         localComponent.IsWeaponDrawn = acMessage.IsWeaponDrawn;
         pActor->GetExtension()->SetRemote(false);
@@ -888,7 +900,7 @@ void CharacterService::OnOwnershipTransfer(const NotifyOwnershipTransfer& acMess
         DeleteRemoteEntityComponents(cEntity);
         CacheSystem::Setup(m_world, cEntity, pActor);
         m_world.emplace_or_replace<LocalAnimationComponent>(cEntity);
-        auto& localComponent = m_world.emplace_or_replace<LocalComponent>(cEntity, acMessage.ServerId, acMessage.OwnershipEpoch);
+        auto& localComponent = m_world.emplace_or_replace<LocalComponent>(cEntity, acMessage.ServerId, acMessage.OwnershipEpoch, pFormIdComponent->Id);
         localComponent.IsDead = acMessage.CurrentActorData.IsDead;
         localComponent.IsWeaponDrawn = acMessage.CurrentActorData.IsWeaponDrawn;
 

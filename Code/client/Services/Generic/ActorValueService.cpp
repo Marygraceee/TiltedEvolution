@@ -96,11 +96,25 @@ void ActorValueService::OnActorRemoved(const ActorRemovedEvent& acEvent) noexcep
 
     if (it != std::end(view))
     {
+        if (const auto* pLocalComponent = m_world.try_get<LocalComponent>(*it))
+        {
+            m_smallHealthChanges.erase(pLocalComponent->Id);
+            return;
+        }
+
         if (const auto serverId = Utils::GetServerId(*it))
             m_smallHealthChanges.erase(*serverId);
 
         m_world.remove<ActorValuesComponent>(*it);
+        return;
     }
+
+    auto localView = m_world.view<LocalComponent>();
+    const auto localIt =
+        std::find_if(localView.begin(), localView.end(), [formId, localView](entt::entity entity) { return localView.get<LocalComponent>(entity).CachedRefId == formId; });
+
+    if (localIt != localView.end())
+        m_smallHealthChanges.erase(localView.get<LocalComponent>(*localIt).Id);
 }
 
 void ActorValueService::OnUpdate(const UpdateEvent& acEvent) noexcept
