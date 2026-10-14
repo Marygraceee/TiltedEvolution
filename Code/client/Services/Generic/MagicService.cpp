@@ -510,6 +510,21 @@ void MagicService::OnNotifyRemoveSpell(const NotifyRemoveSpell& acMessage) noexc
 {
     uint32_t targetFormId = acMessage.TargetId;
 
+    const auto entity = Utils::FindEntityByServerId(acMessage.TargetId);
+    if (!entity)
+        return;
+
+    const auto* pRemoteComponent = m_world.try_get<RemoteComponent>(*entity);
+    const auto* pLocalComponent = m_world.try_get<LocalComponent>(*entity);
+    uint32_t ownershipEpoch = 0;
+    if (pRemoteComponent)
+        ownershipEpoch = pRemoteComponent->OwnershipEpoch;
+    else if (pLocalComponent)
+        ownershipEpoch = pLocalComponent->OwnershipEpoch;
+
+    if (ownershipEpoch == 0 || ownershipEpoch != acMessage.TargetOwnershipEpoch)
+        return;
+
     Actor* pActor = Utils::GetByServerId<Actor>(acMessage.TargetId);
     if (!pActor)
     {

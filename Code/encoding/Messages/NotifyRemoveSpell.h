@@ -16,9 +16,10 @@ struct NotifyRemoveSpell final : ServerMessage
 
     bool operator==(const NotifyRemoveSpell& acRhs) const noexcept
     {
-        return GetOpcode() == acRhs.GetOpcode() && TargetId == acRhs.TargetId && SpellId == acRhs.SpellId;
+        return GetOpcode() == acRhs.GetOpcode() && TargetId == acRhs.TargetId && TargetOwnershipEpoch == acRhs.TargetOwnershipEpoch && SpellId == acRhs.SpellId;
     }
 
     uint32_t TargetId{};
+    uint32_t TargetOwnershipEpoch{};
     GameId SpellId{};
 };

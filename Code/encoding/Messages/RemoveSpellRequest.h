@@ -9,8 +9,12 @@ struct RemoveSpellRequest final: ClientMessage
     virtual ~RemoveSpellRequest() = default;
     void SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter) const noexcept override;
     void DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) noexcept override;
-    bool operator==(const RemoveSpellRequest& achRhs) const noexcept { return  Opcode == achRhs.Opcode && TargetId == achRhs.TargetId && SpellId == achRhs.SpellId; }
+    bool operator==(const RemoveSpellRequest& acRhs) const noexcept
+    {
+        return Opcode == acRhs.Opcode && TargetId == acRhs.TargetId && TargetOwnershipEpoch == acRhs.TargetOwnershipEpoch && SpellId == acRhs.SpellId;
+    }
 
     uint32_t TargetId{};
+    uint32_t TargetOwnershipEpoch{};
     GameId SpellId{};
 };

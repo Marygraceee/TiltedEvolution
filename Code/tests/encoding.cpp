@@ -30,6 +30,8 @@
 #include <Messages/NotifySpellCast.h>
 #include <Messages/InterruptCastRequest.h>
 #include <Messages/NotifyInterruptCast.h>
+#include <Messages/RemoveSpellRequest.h>
+#include <Messages/NotifyRemoveSpell.h>
 #include <Messages/RequestQuestSnapshot.h>
 #include <Messages/RequestFactionsChanges.h>
 #include <Messages/NotifyInventoryChanges.h>
@@ -172,6 +174,41 @@ TEST_CASE("Interrupt cast messages preserve ownership epochs", "[encoding.interr
     auto notifyMessage = serverFactory.Extract(notifyReader);
     REQUIRE(notifyMessage);
     auto decodedNotify = CastUnique<NotifyInterruptCast>(std::move(notifyMessage));
+    REQUIRE(*decodedNotify == notify);
+}
+
+TEST_CASE("Spell removal messages preserve ownership epochs", "[encoding.remove_spell]")
+{
+    RemoveSpellRequest request{};
+    request.TargetId = 11;
+    request.TargetOwnershipEpoch = 271;
+    request.SpellId = GameId{3, 0x1234};
+
+    Buffer requestBuffer(1000);
+    Buffer::Writer requestWriter(&requestBuffer);
+    request.Serialize(requestWriter);
+
+    Buffer::Reader requestReader(&requestBuffer);
+    const ClientMessageFactory clientFactory;
+    auto requestMessage = clientFactory.Extract(requestReader);
+    REQUIRE(requestMessage);
+    auto decodedRequest = CastUnique<RemoveSpellRequest>(std::move(requestMessage));
+    REQUIRE(*decodedRequest == request);
+
+    NotifyRemoveSpell notify{};
+    notify.TargetId = request.TargetId;
+    notify.TargetOwnershipEpoch = request.TargetOwnershipEpoch;
+    notify.SpellId = request.SpellId;
+
+    Buffer notifyBuffer(1000);
+    Buffer::Writer notifyWriter(&notifyBuffer);
+    notify.Serialize(notifyWriter);
+
+    Buffer::Reader notifyReader(&notifyBuffer);
+    const ServerMessageFactory serverFactory;
+    auto notifyMessage = serverFactory.Extract(notifyReader);
+    REQUIRE(notifyMessage);
+    auto decodedNotify = CastUnique<NotifyRemoveSpell>(std::move(notifyMessage));
     REQUIRE(*decodedNotify == notify);
 }
 

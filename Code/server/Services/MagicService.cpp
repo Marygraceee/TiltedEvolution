@@ -87,14 +87,19 @@ void MagicService::OnAddTargetRequest(const PacketEvent<AddTargetRequest>& acMes
 void MagicService::OnRemoveSpellRequest(const PacketEvent<RemoveSpellRequest>& acMessage) const noexcept
 {
     const auto& message = acMessage.Packet;
-    
+
+    auto view = m_world.view<OwnerComponent>();
+    const auto it = view.find(static_cast<entt::entity>(message.TargetId));
+    if (it == view.end() || !view.get<OwnerComponent>(*it).IsCurrentOwner(acMessage.pPlayer, message.TargetOwnershipEpoch))
+        return;
+
     NotifyRemoveSpell notify;
     notify.TargetId = message.TargetId;
+    notify.TargetOwnershipEpoch = message.TargetOwnershipEpoch;
     notify.SpellId = message.SpellId;
 
     //spdlog::info(__FUNCTION__ ": TargetId: {}, Spell baseId: {}", notify.TargetId, notify.SpellId.BaseId);
 
-    const auto entity = static_cast<entt::entity>(message.TargetId);
-    if (!GameServer::Get()->SendToPlayersInRange(notify, entity, acMessage.GetSender()))
+    if (!GameServer::Get()->SendToPlayersInRange(notify, *it, acMessage.GetSender()))
         spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
 }
