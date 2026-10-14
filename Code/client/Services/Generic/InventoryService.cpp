@@ -406,10 +406,12 @@ void InventoryService::ApplyDroppedItem(const ObjectData& acData) noexcept
         }
     }
 
-    RemoveDroppedItem(acData.ServerId, true);
     const uint32_t formId = SpawnDroppedItem(acData);
-    if (formId != 0)
-        TrackDroppedItem(acData, formId, false);
+    if (formId == 0)
+        return;
+
+    RemoveDroppedItem(acData.ServerId, true);
+    TrackDroppedItem(acData, formId, false);
 }
 
 uint32_t InventoryService::SpawnDroppedItem(const ObjectData& acData) noexcept
