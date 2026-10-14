@@ -207,6 +207,8 @@ void QuestService::OnQuestUpdate(const NotifyQuestUpdate& aUpdate) noexcept
     }
     case NotifyQuestUpdate::StageUpdate:
         pQuest->ScriptSetStage(aUpdate.Stage);
+        if (!pQuest->IsActive())
+            pQuest->SetActive(true);
         bResult = true;
         spdlog::info("Remote quest updated: {:X}, stage: {}", formId, aUpdate.Stage);
         break;
