@@ -692,9 +692,16 @@ void CharacterService::OnNotifyActionEvents(const NotifyActionEvents& acMessage)
 
     for (const auto& [serverId, actions] : acMessage.Actions)
     {
+        const auto epochIt = acMessage.OwnershipEpochs.find(serverId);
+        if (epochIt == acMessage.OwnershipEpochs.end())
+            continue;
+
         auto itor = std::find_if(std::begin(view), std::end(view), [serverId = serverId, view](entt::entity entity) { return view.get<RemoteComponent>(entity).Id == serverId; });
 
         if (itor == std::end(view))
+            continue;
+
+        if (view.get<RemoteComponent>(*itor).OwnershipEpoch != epochIt->second)
             continue;
 
         auto& animationComponent = view.get<RemoteAnimationComponent>(*itor);

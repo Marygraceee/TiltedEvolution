@@ -18,8 +18,12 @@ struct NotifyActionEvents final : ServerMessage
     void SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter) const noexcept override;
     void DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) noexcept override;
 
-    bool operator==(const NotifyActionEvents& acRhs) const noexcept { return Actions == acRhs.Actions && GetOpcode() == acRhs.GetOpcode(); }
+    bool operator==(const NotifyActionEvents& acRhs) const noexcept
+    {
+        return Actions == acRhs.Actions && OwnershipEpochs == acRhs.OwnershipEpochs && GetOpcode() == acRhs.GetOpcode();
+    }
 
     // Server id -> actions in the order they were performed
     TiltedPhoques::Map<uint32_t, Vector<ActionEvent>> Actions{};
+    TiltedPhoques::Map<uint32_t, uint32_t> OwnershipEpochs{};
 };

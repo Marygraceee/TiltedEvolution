@@ -462,6 +462,7 @@ void CharacterService::OnActionEventsRequest(const PacketEvent<RequestActionEven
     for (auto& [id, actions] : message.Actions)
     {
         const auto entity = static_cast<entt::entity>(id);
+        const auto epochIt = message.OwnershipEpochs.find(id);
 
         auto itor = view.find(entity);
         if (itor == std::end(view))
@@ -470,8 +471,12 @@ void CharacterService::OnActionEventsRequest(const PacketEvent<RequestActionEven
             continue;
         }
 
+        if (epochIt == message.OwnershipEpochs.end() || !view.get<OwnerComponent>(*itor).IsCurrentOwner(acMessage.pPlayer, epochIt->second))
+            continue;
+
         NotifyActionEvents notify;
         auto& acceptedActions = notify.Actions[id];
+        notify.OwnershipEpochs[id] = epochIt->second;
 
         for (auto& action : actions)
         {

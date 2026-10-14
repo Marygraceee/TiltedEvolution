@@ -138,6 +138,7 @@ void AnimationSystem::SerializeActions(RequestActionEvents& aMessage, LocalCompo
     localComponent.CurrentAction = animationComponent.Actions.back();
 
     aMessage.Actions[localComponent.Id] = std::move(animationComponent.Actions);
+    aMessage.OwnershipEpochs[localComponent.Id] = localComponent.OwnershipEpoch;
     animationComponent.Actions.clear();
 }
 

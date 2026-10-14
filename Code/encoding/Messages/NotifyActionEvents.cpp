@@ -8,6 +8,8 @@ void NotifyActionEvents::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter) co
     for (const auto& [serverId, actions] : Actions)
     {
         Serialization::WriteVarInt(aWriter, serverId);
+        const auto epochIt = OwnershipEpochs.find(serverId);
+        Serialization::WriteVarInt(aWriter, epochIt != OwnershipEpochs.end() ? epochIt->second : 0);
         Serialization::WriteVarInt(aWriter, actions.size());
 
         for (const auto& action : actions)
@@ -24,6 +26,7 @@ void NotifyActionEvents::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) 
     for (auto i = 0u; i < count; ++i)
     {
         const uint32_t cServerId = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
+        OwnershipEpochs[cServerId] = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
         auto& actions = Actions[cServerId];
 
         actions.resize(Serialization::ReadVarInt(aReader));
