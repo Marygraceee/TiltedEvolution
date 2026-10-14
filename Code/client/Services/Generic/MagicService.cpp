@@ -153,7 +153,7 @@ void MagicService::OnNotifySpellCast(const NotifySpellCast& acMessage) const noe
         return;
     }
 
-    auto remoteView = m_world.view<RemoteComponent, FormIdComponent>();
+    auto remoteView = m_world.view<RemoteComponent>();
     const auto remoteIt = std::find_if(
         std::begin(remoteView), std::end(remoteView),
         [remoteView, &acMessage](auto entity)
@@ -168,9 +168,7 @@ void MagicService::OnNotifySpellCast(const NotifySpellCast& acMessage) const noe
         return;
     }
 
-    auto formIdComponent = remoteView.get<FormIdComponent>(*remoteIt);
-    TESForm* pForm = TESForm::GetById(formIdComponent.Id);
-    Actor* pActor = Cast<Actor>(pForm);
+    Actor* pActor = Utils::GetByServerId<Actor>(acMessage.CasterId);
     if (!pActor)
         return;
 
@@ -290,7 +288,7 @@ void MagicService::OnNotifyInterruptCast(const NotifyInterruptCast& acMessage) c
         return;
     }
 
-    auto remoteView = m_world.view<RemoteComponent, FormIdComponent>();
+    auto remoteView = m_world.view<RemoteComponent>();
     const auto remoteIt = std::find_if(
         std::begin(remoteView), std::end(remoteView),
         [remoteView, &acMessage](auto entity)
@@ -305,10 +303,7 @@ void MagicService::OnNotifyInterruptCast(const NotifyInterruptCast& acMessage) c
         return;
     }
 
-    auto formIdComponent = remoteView.get<FormIdComponent>(*remoteIt);
-
-    const TESForm* pForm = TESForm::GetById(formIdComponent.Id);
-    Actor* pActor = Cast<Actor>(pForm);
+    Actor* pActor = Utils::GetByServerId<Actor>(acMessage.CasterId);
     if (!pActor)
         return;
 

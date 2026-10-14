@@ -42,9 +42,15 @@ template <class T> T* GetByServerId(const uint32_t acServerId) noexcept
 {
     if (const auto entity = FindEntityByServerId(acServerId))
     {
+        uint32_t formId = 0;
         if (const auto* pFormIdComponent = World::Get().try_get<FormIdComponent>(*entity))
+            formId = pFormIdComponent->Id;
+        else if (const auto* pRemoteComponent = World::Get().try_get<RemoteComponent>(*entity))
+            formId = pRemoteComponent->CachedRefId;
+
+        if (formId != 0)
         {
-            TESForm* pForm = TESForm::GetById(pFormIdComponent->Id);
+            TESForm* pForm = TESForm::GetById(formId);
 
             if (pForm)
                 return Cast<T>(pForm);

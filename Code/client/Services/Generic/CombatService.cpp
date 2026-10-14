@@ -10,6 +10,7 @@
 
 #include <Systems/ModSystem.h>
 #include <World.h>
+#include <Utils.h>
 
 #include <Projectiles/Projectile.h>
 #include <Forms/TESObjectWEAP.h>
@@ -97,19 +98,16 @@ void CombatService::OnNotifyProjectileLaunch(const NotifyProjectileLaunch& acMes
 
     ModSystem& modSystem = World::Get().GetModSystem();
 
-    auto remoteView = m_world.view<RemoteComponent, FormIdComponent>();
-    const auto remoteIt = std::find_if(std::begin(remoteView), std::end(remoteView), [remoteView, Id = acMessage.ShooterID](auto entity) { return remoteView.get<RemoteComponent>(entity).Id == Id; });
-
-    if (remoteIt == std::end(remoteView))
+    const auto shooterEntity = Utils::FindEntityByServerId(acMessage.ShooterID);
+    if (!shooterEntity)
     {
         spdlog::warn("Shooter with remote id {:X} not found.", acMessage.ShooterID);
         return;
     }
 
-    if (remoteView.get<RemoteComponent>(*remoteIt).OwnershipEpoch != acMessage.OwnershipEpoch)
+    const auto* pRemoteComponent = m_world.try_get<RemoteComponent>(*shooterEntity);
+    if (!pRemoteComponent || pRemoteComponent->OwnershipEpoch != acMessage.OwnershipEpoch)
         return;
-
-    FormIdComponent formIdComponent = remoteView.get<FormIdComponent>(*remoteIt);
 
     Projectile::LaunchData launchData{};
 
@@ -124,7 +122,7 @@ void CombatService::OnNotifyProjectileLaunch(const NotifyProjectileLaunch& acMes
         return;
     }
 
-    launchData.pShooter = Cast<TESObjectREFR>(TESForm::GetById(formIdComponent.Id));
+    launchData.pShooter = Utils::GetByServerId<TESObjectREFR>(acMessage.ShooterID);
     if (!launchData.pShooter)
         return;
 

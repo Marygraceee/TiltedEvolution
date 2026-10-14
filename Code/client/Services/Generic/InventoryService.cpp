@@ -203,7 +203,7 @@ void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& ac
     entt::entity actorEntity = entt::null;
     if (acMessage.OwnershipEpoch != 0)
     {
-        auto remoteView = m_world.view<RemoteComponent, FormIdComponent>(entt::exclude<LocalComponent>);
+        auto remoteView = m_world.view<RemoteComponent>(entt::exclude<LocalComponent>);
         const auto remoteIt = std::find_if(remoteView.begin(), remoteView.end(), [remoteView, &acMessage](const entt::entity aEntity)
         {
             const auto& remoteComponent = remoteView.get<RemoteComponent>(aEntity);
@@ -213,7 +213,10 @@ void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& ac
         if (remoteIt != remoteView.end())
         {
             actorEntity = *remoteIt;
-            pActor = Cast<Actor>(TESForm::GetById(remoteView.get<FormIdComponent>(*remoteIt).Id));
+            const auto& remoteComponent = remoteView.get<RemoteComponent>(*remoteIt);
+            const auto* pFormIdComponent = m_world.try_get<FormIdComponent>(*remoteIt);
+            const uint32_t formId = pFormIdComponent ? pFormIdComponent->Id : remoteComponent.CachedRefId;
+            pActor = Cast<Actor>(TESForm::GetById(formId));
         }
         else
         {
@@ -497,7 +500,7 @@ void InventoryService::RemoveDroppedItem(const uint32_t aDropId, const bool aDel
 
 void InventoryService::OnNotifyEquipmentChanges(const NotifyEquipmentChanges& acMessage) noexcept
 {
-    auto view = m_world.view<RemoteComponent, FormIdComponent>(entt::exclude<LocalComponent>);
+    auto view = m_world.view<RemoteComponent>(entt::exclude<LocalComponent>);
     const auto it = std::find_if(view.begin(), view.end(), [view, &acMessage](const entt::entity aEntity)
     {
         const auto& remoteComponent = view.get<RemoteComponent>(aEntity);
@@ -509,7 +512,10 @@ void InventoryService::OnNotifyEquipmentChanges(const NotifyEquipmentChanges& ac
         return;
     }
 
-    Actor* pActor = Cast<Actor>(TESForm::GetById(view.get<FormIdComponent>(*it).Id));
+    const auto& remoteComponent = view.get<RemoteComponent>(*it);
+    const auto* pFormIdComponent = m_world.try_get<FormIdComponent>(*it);
+    const uint32_t formId = pFormIdComponent ? pFormIdComponent->Id : remoteComponent.CachedRefId;
+    Actor* pActor = Cast<Actor>(TESForm::GetById(formId));
     if (auto* pWaitingFor3D = m_world.try_get<WaitingFor3D>(*it))
         pWaitingFor3D->SpawnRequest.InventoryContent = acMessage.CurrentInventory;
 
