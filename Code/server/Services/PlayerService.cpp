@@ -4,6 +4,7 @@
 
 #include <Services/PlayerService.h>
 #include <Services/CharacterService.h>
+#include <Services/InventoryService.h>
 #include <GameServer.h>
 
 #include <Messages/ShiftGridCellRequest.h>
@@ -18,6 +19,7 @@
 #include <Messages/PlayerLevelRequest.h>
 #include <Messages/NotifyPlayerLevel.h>
 #include <Messages/NotifyPlayerCellChanged.h>
+#include <Messages/AssignObjectsResponse.h>
 
 #include <Setting.h>
 namespace
@@ -95,6 +97,13 @@ void PlayerService::HandleGridCellShift(const PacketEvent<ShiftGridCellRequest>&
     pPlayer->SetCellComponent(currentCell);
     m_world.GetDispatcher().trigger(PlayerLeaveCellEvent(previousCell.Cell));
     UpdateCharacterVisibility(m_world, pPlayer, previousCell, currentCell);
+
+    AssignObjectsResponse droppedItems{};
+    droppedItems.CellId = currentCell.Cell;
+    droppedItems.WorldSpaceId = currentCell.WorldSpaceId;
+    droppedItems.CurrentCoords = currentCell.CenterCoords;
+    m_world.ctx().at<InventoryService>().AppendDroppedItems(droppedItems, currentCell, pPlayer->GetId());
+    pPlayer->Send(droppedItems);
 }
 
 void PlayerService::HandleExteriorCellEnter(const PacketEvent<EnterExteriorCellRequest>& acMessage) const noexcept
