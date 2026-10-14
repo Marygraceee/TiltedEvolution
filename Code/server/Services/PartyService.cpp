@@ -300,8 +300,14 @@ void PartyService::OnPartyAcceptInvite(const PacketEvent<PartyAcceptInviteReques
         auto& selfPartyComponent = pSelf->GetParty();
 
         // Check if we have this invitation so people don't invite themselves
-        if (selfPartyComponent.Invitations.count(pInviter) == 0)
+        auto invitationIt = selfPartyComponent.Invitations.find(pInviter);
+        if (invitationIt == std::end(selfPartyComponent.Invitations))
             return;
+        if (invitationIt->second <= GameServer::Get()->GetTick())
+        {
+            selfPartyComponent.Invitations.erase(invitationIt);
+            return;
+        }
 
         spdlog::debug("[PartyService]: Invite found, processing.");
         if (!inviterPartyComponent.JoinedPartyId) // Ensure inviter is in a party otherwise break
@@ -328,6 +334,7 @@ void PartyService::OnPartyAcceptInvite(const PacketEvent<PartyAcceptInviteReques
 
         party.Members.push_back(pSelf);
         selfPartyComponent.JoinedPartyId = partyId;
+        selfPartyComponent.Invitations.erase(invitationIt);
 
         spdlog::debug("[PartyService]: Added invitee to party, sending events");
         SendPartyJoinedEvent(party, pSelf);
