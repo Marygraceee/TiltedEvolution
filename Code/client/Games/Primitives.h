@@ -40,9 +40,9 @@ template <class T> struct GameArray
         T* m_pEntry;
     };
 
-    Iterator begin() { return Iterator(&data[0]); }
+    Iterator begin() { return Iterator(data); }
 
-    Iterator end() { return Iterator(&data[length]); }
+    Iterator end() { return Iterator(data ? data + length : nullptr); }
 
     struct ConstIterator
     {
@@ -61,9 +61,9 @@ template <class T> struct GameArray
         const T* m_pEntry;
     };
 
-    ConstIterator begin() const { return ConstIterator(&data[0]); }
+    ConstIterator begin() const { return ConstIterator(data); }
 
-    ConstIterator end() const { return ConstIterator(&data[length]); }
+    ConstIterator end() const { return ConstIterator(data ? data + length : nullptr); }
 
     inline bool Empty() const noexcept { return length == 0; }
 };
