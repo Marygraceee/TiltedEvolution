@@ -936,11 +936,14 @@ void CharacterService::OnRemoveCharacter(const NotifyRemoveCharacter& acMessage)
 
     if (itor != std::end(view))
     {
-        if (auto* pFormIdComponent = m_world.try_get<FormIdComponent>(*itor))
+        const auto& remoteComponent = view.get<RemoteComponent>(*itor);
+        const auto* pFormIdComponent = m_world.try_get<FormIdComponent>(*itor);
+        const uint32_t formId = pFormIdComponent ? pFormIdComponent->Id : remoteComponent.CachedRefId;
+        if (formId != 0)
         {
-            Actor* pActor = Cast<Actor>(TESForm::GetById(pFormIdComponent->Id));
+            Actor* pActor = Cast<Actor>(TESForm::GetById(formId));
             if (pActor && pActor->IsTemporary())
-                CharacterService::DeleteTempActor(pFormIdComponent->Id);
+                CharacterService::DeleteTempActor(formId);
             else if (pActor)
                 pActor->GetExtension()->SetRemote(false);
         }
