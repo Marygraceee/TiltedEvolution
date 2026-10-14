@@ -22,6 +22,7 @@
 #include <Messages/CharacterSpawnRequest.h>
 #include <Messages/DrawWeaponRequest.h>
 #include <Messages/NotifyDrawWeapon.h>
+#include <Messages/NotifyEquipmentChanges.h>
 #include <Messages/RequestInventoryChanges.h>
 #include <Messages/RequestQuestSnapshot.h>
 #include <Messages/RequestFactionsChanges.h>
@@ -189,6 +190,34 @@ TEST_CASE("Weapon state request preserves ownership epoch", "[encoding.weapon_st
     REQUIRE(notifyMessage);
     auto decodedNotify = CastUnique<NotifyDrawWeapon>(std::move(notifyMessage));
     REQUIRE(*decodedNotify == notify);
+}
+
+TEST_CASE("Equipment notifications preserve current inventory", "[encoding.equipment]")
+{
+    NotifyEquipmentChanges notify{};
+    notify.ServerId = 11;
+    notify.OwnershipEpoch = 271;
+    notify.ItemId = GameId{2, 0x1234};
+    notify.EquipSlotId = GameId{3, 0x5678};
+    notify.Count = 1;
+    notify.CurrentInventory.CurrentMagicEquipment.RightHandSpell = GameId{4, 0x2345};
+
+    Inventory::Entry entry{};
+    entry.BaseId = notify.ItemId;
+    entry.Count = 1;
+    entry.ExtraWorn = true;
+    notify.CurrentInventory.Entries.push_back(entry);
+
+    Buffer buffer(1000);
+    Buffer::Writer writer(&buffer);
+    notify.Serialize(writer);
+
+    Buffer::Reader reader(&buffer);
+    const ServerMessageFactory serverFactory;
+    auto message = serverFactory.Extract(reader);
+    REQUIRE(message);
+    auto decoded = CastUnique<NotifyEquipmentChanges>(std::move(message));
+    REQUIRE(*decoded == notify);
 }
 
 TEST_CASE("Grid cell ranges handle integer boundaries", "[encoding.grid_cell]")

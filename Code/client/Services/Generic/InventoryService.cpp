@@ -200,6 +200,7 @@ void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& ac
 {
     Actor* pActor = nullptr;
     TESObjectREFR* pReference = nullptr;
+    entt::entity actorEntity = entt::null;
     if (acMessage.OwnershipEpoch != 0)
     {
         auto remoteView = m_world.view<RemoteComponent, FormIdComponent>(entt::exclude<LocalComponent>);
@@ -210,7 +211,10 @@ void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& ac
         });
 
         if (remoteIt != remoteView.end())
+        {
+            actorEntity = *remoteIt;
             pActor = Cast<Actor>(TESForm::GetById(remoteView.get<FormIdComponent>(*remoteIt).Id));
+        }
         else
         {
             auto localView = m_world.view<LocalComponent, FormIdComponent>();
@@ -221,7 +225,10 @@ void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& ac
             });
 
             if (localIt != localView.end())
+            {
+                actorEntity = *localIt;
                 pActor = Cast<Actor>(TESForm::GetById(localView.get<FormIdComponent>(*localIt).Id));
+            }
         }
     }
     else
@@ -230,10 +237,23 @@ void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& ac
         pActor = Cast<Actor>(pReference);
     }
 
+    const auto updatePendingInventory = [this, actorEntity, &acMessage]()
+    {
+        if (actorEntity == entt::null)
+            return;
+
+        auto* pWaitingFor3D = m_world.try_get<WaitingFor3D>(actorEntity);
+        if (pWaitingFor3D)
+            pWaitingFor3D->SpawnRequest.InventoryContent.AddOrRemoveEntry(acMessage.Item);
+    };
+
     if (acMessage.Drop)
     {
         if (acMessage.HasDroppedObject)
         {
+            if (acMessage.Item.Count != 0)
+                updatePendingInventory();
+
             if (pActor && acMessage.Item.Count != 0)
             {
                 ScopedInventoryOverride _;
@@ -244,14 +264,20 @@ void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& ac
         }
         else if (pActor && acMessage.Item.Count != 0)
         {
+            updatePendingInventory();
             ScopedInventoryOverride _;
             pActor->DropOrPickUpObject(acMessage.Item, nullptr, nullptr);
         }
+        else if (acMessage.Item.Count != 0)
+            updatePendingInventory();
         return;
     }
 
     if (acMessage.DropId != 0)
     {
+        if (acMessage.Item.Count != 0)
+            updatePendingInventory();
+
         if (pActor && acMessage.Item.Count != 0)
         {
             ScopedInventoryOverride _;
@@ -264,6 +290,9 @@ void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& ac
             RemoveDroppedItem(acMessage.DropId, true);
         return;
     }
+
+    if (acMessage.OwnershipEpoch != 0 && acMessage.Item.Count != 0)
+        updatePendingInventory();
 
     if (!pActor)
     {
@@ -479,6 +508,9 @@ void InventoryService::OnNotifyEquipmentChanges(const NotifyEquipmentChanges& ac
     }
 
     Actor* pActor = Cast<Actor>(TESForm::GetById(view.get<FormIdComponent>(*it).Id));
+    if (auto* pWaitingFor3D = m_world.try_get<WaitingFor3D>(*it))
+        pWaitingFor3D->SpawnRequest.InventoryContent = acMessage.CurrentInventory;
+
     if (!pActor)
         return;
 
