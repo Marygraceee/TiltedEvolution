@@ -370,7 +370,7 @@ void ActorValueService::OnHealthChangeBroadcast(const NotifyHealthChangeBroadcas
             {
                 const float pendingHealth = health->second + acMessage.DeltaHealth;
                 if (std::isfinite(pendingHealth))
-                    health->second = pendingHealth;
+                    values[ActorValueInfo::kHealth] = pendingHealth;
             }
         }
         return;

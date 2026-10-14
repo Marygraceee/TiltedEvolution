@@ -99,6 +99,7 @@ bool TESQuest::SetStage(uint16_t newStage)
 
 void TESQuest::Reset()
 {
+    using Quest = TESQuest;
     PAPYRUS_FUNCTION(void, Quest, Reset);
     s_pReset(this);
 }

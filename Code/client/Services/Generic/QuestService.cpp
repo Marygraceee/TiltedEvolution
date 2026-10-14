@@ -239,7 +239,7 @@ void QuestService::OnPartyInfo(const NotifyPartyInfo& acPartyInfo) noexcept
     RequestQuestSnapshot request{};
     auto& modSystem = m_world.GetModSystem();
     std::unordered_map<GameId, std::size_t> entriesByQuestId;
-    entriesByQuestId.reserve(ModManager::Get()->quests.size());
+    entriesByQuestId.reserve(ModManager::Get()->quests.length);
     for (TESQuest* pQuest : ModManager::Get()->quests)
     {
         if (!pQuest || pQuest->IsStopped() || IsNonSyncableQuest(pQuest))

@@ -439,8 +439,8 @@ uint32_t InventoryService::SpawnDroppedItem(const ObjectData& acData) noexcept
         return 0;
 
     const auto& item = acData.CurrentInventory.Entries.front();
-    NiPoint3 position{acData.Position.x, acData.Position.y, acData.Position.z};
-    NiPoint3 rotation{acData.Rotation.x, 0.f, acData.Rotation.y};
+    NiPoint3 position{glm::vec3(acData.Position.x, acData.Position.y, acData.Position.z)};
+    NiPoint3 rotation{glm::vec3(acData.Rotation.x, 0.f, acData.Rotation.y)};
     const uint32_t formId = pPlayer->CreateDroppedObject(item, &position, &rotation);
     TESObjectREFR* pReference = Cast<TESObjectREFR>(TESForm::GetById(formId));
     if (!pReference)
