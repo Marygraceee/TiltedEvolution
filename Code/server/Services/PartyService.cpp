@@ -188,7 +188,7 @@ void PartyService::OnPartyKick(const PacketEvent<PartyKickRequest>& acPacket) no
     if (inviterPartyComponent.JoinedPartyId) // Ensure not in party
     {
         Party& party = m_parties[*inviterPartyComponent.JoinedPartyId];
-        if (party.LeaderPlayerId == player->GetId())
+        if (party.LeaderPlayerId == player->GetId() && std::find(std::begin(party.Members), std::end(party.Members), pKick) != std::end(party.Members))
         {
             spdlog::debug("[PartyService]: Kicking player {} from party", pKick->GetId());
             RemovePlayerFromParty(pKick);
