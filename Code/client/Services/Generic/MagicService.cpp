@@ -320,6 +320,20 @@ void MagicService::OnAddTargetEvent(const AddTargetEvent& acEvent) noexcept
     if (!m_transport.IsConnected())
         return;
 
+    AddTargetEvent targetEvent = acEvent;
+    if (targetEvent.AuthorityActorId == 0 || targetEvent.OwnershipEpoch == 0)
+    {
+        auto authorityToken = Utils::GetLocalOwnershipToken(targetEvent.TargetID);
+        if (!authorityToken && targetEvent.CasterID != 0)
+            authorityToken = Utils::GetLocalOwnershipToken(targetEvent.CasterID);
+
+        if (!authorityToken)
+            return;
+
+        targetEvent.AuthorityActorId = authorityToken->ServerId;
+        targetEvent.OwnershipEpoch = authorityToken->OwnershipEpoch;
+    }
+
     // These effects are applied through spell cast sync
     if (SpellItem* pSpellItem = Cast<SpellItem>(TESForm::GetById(acEvent.SpellID)))
     {
@@ -353,7 +367,7 @@ void MagicService::OnAddTargetEvent(const AddTargetEvent& acEvent) noexcept
     if (it == std::end(view))
     {
         MagicQueue::Spdlog("{}: server entity for target formID not found, formID: {:X}, queueing", __FUNCTION__, acEvent.TargetID);
-        m_queuedEffects.push(MagicAddTargetEventQueue(acEvent));
+        m_queuedEffects.push(MagicAddTargetEventQueue(targetEvent));
         return;
     }
 
@@ -361,11 +375,13 @@ void MagicService::OnAddTargetEvent(const AddTargetEvent& acEvent) noexcept
     if (!serverIdRes.has_value())
     {
         MagicQueue::Spdlog("{}: server ID for target formID not found, formID: {:X}, queueing", __FUNCTION__, acEvent.TargetID);
-        m_queuedEffects.push(MagicAddTargetEventQueue(acEvent));
+        m_queuedEffects.push(MagicAddTargetEventQueue(targetEvent));
         return;
     }
 
     request.TargetId = serverIdRes.value();
+    request.AuthorityActorId = targetEvent.AuthorityActorId;
+    request.OwnershipEpoch = targetEvent.OwnershipEpoch;
 
     if (acEvent.CasterID)
     {
@@ -374,7 +390,7 @@ void MagicService::OnAddTargetEvent(const AddTargetEvent& acEvent) noexcept
         if (casterIt == std::end(view))
         {
             MagicQueue::Spdlog("{}: server entity for caster formID not found, formID: {:X}, queueing", __FUNCTION__, acEvent.CasterID);
-            m_queuedEffects.push(MagicAddTargetEventQueue(acEvent));  
+            m_queuedEffects.push(MagicAddTargetEventQueue(targetEvent));
             return;
         }
 
@@ -382,7 +398,7 @@ void MagicService::OnAddTargetEvent(const AddTargetEvent& acEvent) noexcept
         if (!serverIdRes.has_value())
         {
             MagicQueue::Spdlog("{}: server ID for caster formID not found, formID: {:X}, queueing", __FUNCTION__, acEvent.CasterID);
-            m_queuedEffects.push(MagicAddTargetEventQueue(acEvent));
+            m_queuedEffects.push(MagicAddTargetEventQueue(targetEvent));
             return;
         }
 
@@ -400,6 +416,20 @@ void MagicService::OnAddTargetEvent(const AddTargetEvent& acEvent) noexcept
 
 void MagicService::OnNotifyAddTarget(const NotifyAddTarget& acMessage) noexcept
 {
+    if (const auto entity = Utils::FindEntityByServerId(acMessage.TargetId))
+    {
+        const auto* pRemoteComponent = m_world.try_get<RemoteComponent>(*entity);
+        const auto* pLocalComponent = m_world.try_get<LocalComponent>(*entity);
+        uint32_t ownershipEpoch = 0;
+        if (pRemoteComponent)
+            ownershipEpoch = pRemoteComponent->OwnershipEpoch;
+        else if (pLocalComponent)
+            ownershipEpoch = pLocalComponent->OwnershipEpoch;
+
+        if (ownershipEpoch == 0 || ownershipEpoch != acMessage.TargetOwnershipEpoch)
+            return;
+    }
+
     const uint32_t cSpellId = World::Get().GetModSystem().GetGameId(acMessage.SpellId);
     if (cSpellId == 0)
     {

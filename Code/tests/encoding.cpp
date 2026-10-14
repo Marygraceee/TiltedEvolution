@@ -30,6 +30,8 @@
 #include <Messages/NotifySpellCast.h>
 #include <Messages/InterruptCastRequest.h>
 #include <Messages/NotifyInterruptCast.h>
+#include <Messages/AddTargetRequest.h>
+#include <Messages/NotifyAddTarget.h>
 #include <Messages/RemoveSpellRequest.h>
 #include <Messages/NotifyRemoveSpell.h>
 #include <Messages/RequestQuestSnapshot.h>
@@ -209,6 +211,54 @@ TEST_CASE("Spell removal messages preserve ownership epochs", "[encoding.remove_
     auto notifyMessage = serverFactory.Extract(notifyReader);
     REQUIRE(notifyMessage);
     auto decodedNotify = CastUnique<NotifyRemoveSpell>(std::move(notifyMessage));
+    REQUIRE(*decodedNotify == notify);
+}
+
+TEST_CASE("Add target messages preserve ownership epochs", "[encoding.add_target]")
+{
+    AddTargetRequest request{};
+    request.TargetId = 11;
+    request.AuthorityActorId = 12;
+    request.OwnershipEpoch = 271;
+    request.CasterId = 13;
+    request.SpellId = GameId{3, 0x1234};
+    request.EffectId = GameId{4, 0x5678};
+    request.Magnitude = 4.5f;
+    request.IsDualCasting = true;
+    request.ApplyHealPerkBonus = true;
+    request.ApplyStaminaPerkBonus = true;
+
+    Buffer requestBuffer(1000);
+    Buffer::Writer requestWriter(&requestBuffer);
+    request.Serialize(requestWriter);
+
+    Buffer::Reader requestReader(&requestBuffer);
+    const ClientMessageFactory clientFactory;
+    auto requestMessage = clientFactory.Extract(requestReader);
+    REQUIRE(requestMessage);
+    auto decodedRequest = CastUnique<AddTargetRequest>(std::move(requestMessage));
+    REQUIRE(*decodedRequest == request);
+
+    NotifyAddTarget notify{};
+    notify.TargetId = request.TargetId;
+    notify.TargetOwnershipEpoch = 281;
+    notify.CasterId = request.CasterId;
+    notify.SpellId = request.SpellId;
+    notify.EffectId = request.EffectId;
+    notify.Magnitude = request.Magnitude;
+    notify.IsDualCasting = request.IsDualCasting;
+    notify.ApplyHealPerkBonus = request.ApplyHealPerkBonus;
+    notify.ApplyStaminaPerkBonus = request.ApplyStaminaPerkBonus;
+
+    Buffer notifyBuffer(1000);
+    Buffer::Writer notifyWriter(&notifyBuffer);
+    notify.Serialize(notifyWriter);
+
+    Buffer::Reader notifyReader(&notifyBuffer);
+    const ServerMessageFactory serverFactory;
+    auto notifyMessage = serverFactory.Extract(notifyReader);
+    REQUIRE(notifyMessage);
+    auto decodedNotify = CastUnique<NotifyAddTarget>(std::move(notifyMessage));
     REQUIRE(*decodedNotify == notify);
 }
 

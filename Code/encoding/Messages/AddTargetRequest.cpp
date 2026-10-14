@@ -3,6 +3,8 @@
 void AddTargetRequest::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter) const noexcept
 {
     Serialization::WriteVarInt(aWriter, TargetId);
+    Serialization::WriteVarInt(aWriter, AuthorityActorId);
+    Serialization::WriteVarInt(aWriter, OwnershipEpoch);
     Serialization::WriteVarInt(aWriter, CasterId);
     SpellId.Serialize(aWriter);
     EffectId.Serialize(aWriter);
@@ -17,6 +19,8 @@ void AddTargetRequest::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) no
     ClientMessage::DeserializeRaw(aReader);
 
     TargetId = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
+    AuthorityActorId = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
+    OwnershipEpoch = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
     CasterId = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
     SpellId.Deserialize(aReader);
     EffectId.Deserialize(aReader);

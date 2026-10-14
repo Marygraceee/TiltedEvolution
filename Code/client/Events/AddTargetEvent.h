@@ -9,6 +9,8 @@ struct AddTargetEvent
 
     uint32_t TargetID{};
     uint32_t CasterID{};
+    uint32_t AuthorityActorId{};
+    uint32_t OwnershipEpoch{};
     uint32_t SpellID{};
     uint32_t EffectID{};
     float Magnitude{};

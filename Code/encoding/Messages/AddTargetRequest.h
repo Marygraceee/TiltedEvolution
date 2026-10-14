@@ -17,12 +17,14 @@ struct AddTargetRequest final : ClientMessage
 
     bool operator==(const AddTargetRequest& acRhs) const noexcept
     {
-        return GetOpcode() == acRhs.GetOpcode() && TargetId == acRhs.TargetId && CasterId == acRhs.CasterId && SpellId == acRhs.SpellId &&
-               EffectId == acRhs.EffectId && Magnitude == acRhs.Magnitude && IsDualCasting == acRhs.IsDualCasting &&
+        return GetOpcode() == acRhs.GetOpcode() && TargetId == acRhs.TargetId && AuthorityActorId == acRhs.AuthorityActorId && OwnershipEpoch == acRhs.OwnershipEpoch &&
+               CasterId == acRhs.CasterId && SpellId == acRhs.SpellId && EffectId == acRhs.EffectId && Magnitude == acRhs.Magnitude && IsDualCasting == acRhs.IsDualCasting &&
                ApplyHealPerkBonus == acRhs.ApplyHealPerkBonus && ApplyStaminaPerkBonus == acRhs.ApplyStaminaPerkBonus;
     }
 
     uint32_t TargetId{};
+    uint32_t AuthorityActorId{};
+    uint32_t OwnershipEpoch{};
     uint32_t CasterId{};
     GameId SpellId{};
     GameId EffectId{};

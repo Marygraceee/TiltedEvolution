@@ -3,6 +3,7 @@
 #include <GameServer.h>
 #include <World.h>
 #include <Components.h>
+#include <cmath>
 
 #include <Messages/SpellCastRequest.h>
 #include <Messages/InterruptCastRequest.h>
@@ -67,10 +68,25 @@ void MagicService::OnInterruptCastRequest(const PacketEvent<InterruptCastRequest
 
 void MagicService::OnAddTargetRequest(const PacketEvent<AddTargetRequest>& acMessage) const noexcept
 {
-    auto& message = acMessage.Packet;
+    const auto& message = acMessage.Packet;
+    if (!std::isfinite(message.Magnitude) || (message.AuthorityActorId != message.TargetId && message.AuthorityActorId != message.CasterId))
+        return;
+
+    auto view = m_world.view<OwnerComponent>();
+    const auto authorityIt = view.find(static_cast<entt::entity>(message.AuthorityActorId));
+    if (authorityIt == view.end() || !view.get<OwnerComponent>(*authorityIt).IsCurrentOwner(acMessage.pPlayer, message.OwnershipEpoch))
+        return;
+
+    const auto targetIt = view.find(static_cast<entt::entity>(message.TargetId));
+    if (targetIt == view.end())
+        return;
+
+    if (message.CasterId != 0 && view.find(static_cast<entt::entity>(message.CasterId)) == view.end())
+        return;
 
     NotifyAddTarget notify;
     notify.TargetId = message.TargetId;
+    notify.TargetOwnershipEpoch = view.get<OwnerComponent>(*targetIt).OwnershipEpoch;
     notify.CasterId = message.CasterId;
     notify.SpellId = message.SpellId;
     notify.EffectId = message.EffectId;
@@ -79,8 +95,7 @@ void MagicService::OnAddTargetRequest(const PacketEvent<AddTargetRequest>& acMes
     notify.ApplyHealPerkBonus = message.ApplyHealPerkBonus;
     notify.ApplyStaminaPerkBonus = message.ApplyStaminaPerkBonus;
 
-    const auto entity = static_cast<entt::entity>(message.TargetId);
-    if (!GameServer::Get()->SendToPlayersInRange(notify, entity, acMessage.GetSender()))
+    if (!GameServer::Get()->SendToPlayersInRange(notify, *targetIt, acMessage.GetSender()))
         spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
 }
 
