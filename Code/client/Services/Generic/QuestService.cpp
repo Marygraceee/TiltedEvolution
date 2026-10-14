@@ -25,6 +25,14 @@
 #include <cstddef>
 #include <unordered_map>
 
+static void ApplyRemoteQuestStage(TESQuest* apQuest, const uint16_t acStage)
+{
+    if (apQuest->currentStage != acStage && (acStage < apQuest->currentStage || apQuest->IsStageDone(acStage)))
+        apQuest->Reset();
+
+    apQuest->ScriptSetStage(acStage);
+}
+
 static TESQuest* FindQuestByNameId(const String& name)
 {
     auto& questRegistry = ModManager::Get()->quests;
@@ -199,14 +207,14 @@ void QuestService::OnQuestUpdate(const NotifyQuestUpdate& aUpdate) noexcept
     {
     case NotifyQuestUpdate::Started:
     {
-        pQuest->ScriptSetStage(aUpdate.Stage);
+        ApplyRemoteQuestStage(pQuest, aUpdate.Stage);
         pQuest->SetActive(true);
         bResult = true;
         spdlog::info("Remote quest started: {:X}, stage: {}", formId, aUpdate.Stage);
         break;
     }
     case NotifyQuestUpdate::StageUpdate:
-        pQuest->ScriptSetStage(aUpdate.Stage);
+        ApplyRemoteQuestStage(pQuest, aUpdate.Stage);
         if (!pQuest->IsActive())
             pQuest->SetActive(true);
         bResult = true;
@@ -280,7 +288,7 @@ void QuestService::OnQuestSnapshot(const NotifyQuestSnapshot& acSnapshot) noexce
         }
 
         if (pQuest->currentStage != stageIt->second || pQuest->IsStopped())
-            pQuest->ScriptSetStage(stageIt->second);
+            ApplyRemoteQuestStage(pQuest, stageIt->second);
         if (!pQuest->IsActive())
             pQuest->SetActive(true);
     }

@@ -97,9 +97,15 @@ bool TESQuest::SetStage(uint16_t newStage)
     return SetStage(this, newStage);
 }
 
+void TESQuest::Reset()
+{
+    PAPYRUS_FUNCTION(void, Quest, Reset);
+    s_pReset(this);
+}
+
 void TESQuest::ScriptSetStage(uint16_t stageIndex)
 {
-    if (currentStage == stageIndex || IsStageDone(stageIndex))
+    if (!IsStopped() && (currentStage == stageIndex || IsStageDone(stageIndex)))
         return;
 
     using Quest = TESQuest;
