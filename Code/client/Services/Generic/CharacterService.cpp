@@ -745,7 +745,17 @@ void CharacterService::OnFactionsChanges(const NotifyFactionsChanges& acEvent) c
 
     for (const auto& [id, factions] : acEvent.Changes)
     {
-        const auto itor = std::find_if(std::begin(view), std::end(view), [id = id, view](entt::entity entity) { return view.get<RemoteComponent>(entity).Id == id; });
+        const auto epochIt = acEvent.OwnershipEpochs.find(id);
+        if (epochIt == acEvent.OwnershipEpochs.end())
+            continue;
+
+        const auto itor = std::find_if(
+            std::begin(view), std::end(view),
+            [id, ownershipEpoch = epochIt->second, view](entt::entity entity)
+            {
+                const auto& remoteComponent = view.get<RemoteComponent>(entity);
+                return remoteComponent.Id == id && remoteComponent.OwnershipEpoch == ownershipEpoch;
+            });
 
         if (itor != std::end(view))
         {
@@ -1984,6 +1994,7 @@ void CharacterService::RunFactionsUpdates() const noexcept
 
         // If not send the current factions and replace the cached factions
         message.Changes[localComponent.Id] = factions;
+        message.OwnershipEpochs[localComponent.Id] = localComponent.OwnershipEpoch;
     }
 
     if (!message.Changes.empty())

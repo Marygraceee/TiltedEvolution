@@ -501,8 +501,9 @@ void CharacterService::OnFactionsChanges(const PacketEvent<RequestFactionsChange
     for (auto& [id, factions] : message.Changes)
     {
         auto it = view.find(static_cast<entt::entity>(id));
+        const auto epochIt = message.OwnershipEpochs.find(id);
 
-        if (it == std::end(view) || view.get<OwnerComponent>(*it).GetOwner() != acMessage.pPlayer)
+        if (it == std::end(view) || epochIt == message.OwnershipEpochs.end() || !view.get<OwnerComponent>(*it).IsCurrentOwner(acMessage.pPlayer, epochIt->second))
             continue;
 
         auto& characterComponent = view.get<CharacterComponent>(*it);
@@ -1007,7 +1008,9 @@ void CharacterService::ProcessFactionsChanges() const noexcept
                 continue;
 
             auto& message = messages[pPlayer];
-            auto& change = message.Changes[World::ToInteger(entity)];
+            const uint32_t id = World::ToInteger(entity);
+            auto& change = message.Changes[id];
+            message.OwnershipEpochs[id] = ownerComponent.OwnershipEpoch;
 
             change = characterComponent.FactionsContent;
         }

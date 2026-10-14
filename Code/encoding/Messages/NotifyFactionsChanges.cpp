@@ -13,6 +13,8 @@ void NotifyFactionsChanges::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter)
     for (auto& change : Changes)
     {
         Serialization::WriteVarInt(aWriter, change.first);
+        const auto epochIt = OwnershipEpochs.find(change.first);
+        Serialization::WriteVarInt(aWriter, epochIt != OwnershipEpochs.end() ? epochIt->second : 0);
         change.second.Serialize(aWriter);
     }
 }
@@ -29,7 +31,9 @@ void NotifyFactionsChanges::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReade
 
     for (auto i = 0u; i < count; ++i)
     {
-        auto& change = Changes[Serialization::ReadVarInt(aReader) & 0xFFFFFFFF];
+        const uint32_t id = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
+        OwnershipEpochs[id] = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
+        auto& change = Changes[id];
         change.Deserialize(aReader);
     }
 }

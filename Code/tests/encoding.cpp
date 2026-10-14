@@ -22,8 +22,10 @@
 #include <Messages/CharacterSpawnRequest.h>
 #include <Messages/RequestInventoryChanges.h>
 #include <Messages/RequestQuestSnapshot.h>
+#include <Messages/RequestFactionsChanges.h>
 #include <Messages/NotifyInventoryChanges.h>
 #include <Messages/NotifyQuestSnapshot.h>
+#include <Messages/NotifyFactionsChanges.h>
 #include <Messages/NewPackageRequest.h>
 #include <Messages/NotifyNewPackage.h>
 #include <Structs/Vector2_NetQuantize.h>
@@ -84,6 +86,50 @@ TEST_CASE("NPC package messages preserve ownership epochs", "[encoding.package]"
     auto notifyMessage = serverFactory.Extract(notifyReader);
     REQUIRE(notifyMessage);
     auto decodedNotify = CastUnique<NotifyNewPackage>(std::move(notifyMessage));
+    REQUIRE(*decodedNotify == notify);
+}
+
+TEST_CASE("Faction messages preserve ownership epochs", "[encoding.factions]")
+{
+    Factions factions{};
+    Faction npcFaction{};
+    npcFaction.Id = GameId{2, 0x1234};
+    npcFaction.Rank = 3;
+    factions.NpcFactions.push_back(npcFaction);
+
+    Faction extraFaction{};
+    extraFaction.Id = GameId{3, 0x5678};
+    extraFaction.Rank = 1;
+    factions.ExtraFactions.push_back(extraFaction);
+
+    RequestFactionsChanges request{};
+    request.Changes[11] = factions;
+    request.OwnershipEpochs[11] = 271;
+
+    Buffer requestBuffer(1000);
+    Buffer::Writer requestWriter(&requestBuffer);
+    request.Serialize(requestWriter);
+
+    Buffer::Reader requestReader(&requestBuffer);
+    const ClientMessageFactory clientFactory;
+    auto requestMessage = clientFactory.Extract(requestReader);
+    REQUIRE(requestMessage);
+    auto decodedRequest = CastUnique<RequestFactionsChanges>(std::move(requestMessage));
+    REQUIRE(*decodedRequest == request);
+
+    NotifyFactionsChanges notify{};
+    notify.Changes[11] = factions;
+    notify.OwnershipEpochs[11] = 271;
+
+    Buffer notifyBuffer(1000);
+    Buffer::Writer notifyWriter(&notifyBuffer);
+    notify.Serialize(notifyWriter);
+
+    Buffer::Reader notifyReader(&notifyBuffer);
+    const ServerMessageFactory serverFactory;
+    auto notifyMessage = serverFactory.Extract(notifyReader);
+    REQUIRE(notifyMessage);
+    auto decodedNotify = CastUnique<NotifyFactionsChanges>(std::move(notifyMessage));
     REQUIRE(*decodedNotify == notify);
 }
 

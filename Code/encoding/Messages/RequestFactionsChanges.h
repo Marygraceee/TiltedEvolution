@@ -17,7 +17,11 @@ struct RequestFactionsChanges final : ClientMessage
     void SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter) const noexcept override;
     void DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) noexcept override;
 
-    bool operator==(const RequestFactionsChanges& acRhs) const noexcept { return Changes == acRhs.Changes && GetOpcode() == acRhs.GetOpcode(); }
+    bool operator==(const RequestFactionsChanges& acRhs) const noexcept
+    {
+        return Changes == acRhs.Changes && OwnershipEpochs == acRhs.OwnershipEpochs && GetOpcode() == acRhs.GetOpcode();
+    }
 
     TiltedPhoques::Map<uint32_t, Factions> Changes;
+    TiltedPhoques::Map<uint32_t, uint32_t> OwnershipEpochs;
 };
