@@ -743,13 +743,15 @@ void CharacterService::OnFactionsChanges(const NotifyFactionsChanges& acEvent) c
         if (itor != std::end(view))
         {
             auto& formIdComponent = view.get<FormIdComponent>(*itor);
+            auto& cacheComponent = view.get<CacheComponent>(*itor);
+            cacheComponent.FactionsContent = factions;
+
+            if (auto* pWaitingFor3D = m_world.try_get<WaitingFor3D>(*itor))
+                pWaitingFor3D->SpawnRequest.FactionsContent = factions;
 
             auto* const pActor = Cast<Actor>(TESForm::GetById(formIdComponent.Id));
             if (!pActor)
-                return;
-
-            auto& cacheComponent = view.get<CacheComponent>(*itor);
-            cacheComponent.FactionsContent = factions;
+                continue;
 
             pActor->SetFactions(cacheComponent.FactionsContent);
         }
