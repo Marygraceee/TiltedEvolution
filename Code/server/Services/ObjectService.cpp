@@ -49,7 +49,18 @@ void ObjectService::OnPlayerLeaveCellEvent(const PlayerLeaveCellEvent& acEvent) 
         if (cellIdComponent.Cell != acEvent.OldCell)
             continue;
 
-        toDestroy.push_back(entity);
+        bool hasNearbyPlayer = false;
+        for (Player* pPlayer : m_world.GetPlayerManager())
+        {
+            if (!cellIdComponent.IsInRange(pPlayer->GetCellComponent(), false))
+                continue;
+
+            hasNearbyPlayer = true;
+            break;
+        }
+
+        if (!hasNearbyPlayer)
+            toDestroy.push_back(entity);
     }
 
     for (auto& entity : toDestroy)

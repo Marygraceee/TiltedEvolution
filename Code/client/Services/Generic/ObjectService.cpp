@@ -253,10 +253,13 @@ entt::entity ObjectService::CreateObjectEntity(const uint32_t acFormId, const ui
 {
     const auto view = m_world.view<FormIdComponent, ObjectComponent>();
 
-    auto it = std::find_if(view.begin(), view.end(), [acServerId, view](entt::entity entity) { return view.get<ObjectComponent>(entity).Id == acServerId; });
+    auto it = std::find_if(view.begin(), view.end(), [acFormId, view](entt::entity entity) { return view.get<FormIdComponent>(entity).Id == acFormId; });
 
     if (it != view.end())
+    {
+        view.get<ObjectComponent>(*it).Id = acServerId;
         return *it;
+    }
 
     entt::entity entity = m_world.create();
     spdlog::info("Created object entity, server id: {:X}, form id {:X}", acServerId, acFormId);
