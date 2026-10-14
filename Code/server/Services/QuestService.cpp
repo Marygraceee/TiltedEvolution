@@ -8,6 +8,9 @@
 #include <Messages/NotifyQuestUpdate.h>
 #include <Messages/RequestQuestSnapshot.h>
 #include <Messages/NotifyQuestSnapshot.h>
+#include <limits>
+
+static void ApplyQuestChange(QuestLog& aQuestLog, GameId aId, uint16_t aStage, uint8_t aStatus);
 
 QuestService::QuestService(World& aWorld, entt::dispatcher& aDispatcher)
     : m_world(aWorld)
@@ -23,82 +26,119 @@ void QuestService::OnQuestSnapshot(const PacketEvent<RequestQuestSnapshot>& acMe
     if (!partyService.IsPlayerInParty(pPlayer) || !partyService.IsPlayerLeader(pPlayer))
         return;
 
-    pPlayer->GetQuestLogComponent().QuestContent = acMessage.Packet.QuestContent;
+    auto* pParty = partyService.GetPlayerParty(pPlayer);
+    if (!pParty)
+        return;
+
+    if (!pParty->HasQuestSnapshot)
+    {
+        pParty->QuestContent = acMessage.Packet.QuestContent;
+        pParty->HasQuestSnapshot = true;
+        for (const auto& [questId, change] : pParty->PendingQuestUpdates)
+        {
+            ApplyQuestChange(pParty->QuestContent, questId, change.Stage, change.Status);
+        }
+        pParty->PendingQuestUpdates.clear();
+    }
+
+    for (Player* pMember : pParty->Members)
+        pMember->GetQuestLogComponent().QuestContent = pParty->QuestContent;
 
     NotifyQuestSnapshot notify{};
-    notify.QuestContent = acMessage.Packet.QuestContent;
-    GameServer::Get()->SendToParty(notify, pPlayer->GetParty(), pPlayer);
+    notify.QuestContent = pParty->QuestContent;
+    GameServer::Get()->SendToParty(notify, pPlayer->GetParty());
 }
 
 void QuestService::OnQuestChanges(const PacketEvent<RequestQuestUpdate>& acMessage) noexcept
 {
     const auto& message = acMessage.Packet;
+    if (message.Status > RequestQuestUpdate::Stopped)
+        return;
 
-    auto* pPlayer = acMessage.pPlayer;
+    Player* pPlayer = acMessage.pPlayer;
+    auto& partyService = m_world.GetPartyService();
+    auto* pParty = partyService.GetPlayerParty(pPlayer);
 
-    auto& questComponent = pPlayer->GetQuestLogComponent();
-    auto& entries = questComponent.QuestContent.Entries;
+    bool hasQuest = false;
+    if (pParty)
+    {
+        if (pParty->HasQuestSnapshot)
+        {
+            hasQuest = std::find_if(pParty->QuestContent.Entries.begin(), pParty->QuestContent.Entries.end(), [&message](const auto& entry) { return entry.Id == message.Id; }) !=
+                       pParty->QuestContent.Entries.end();
+        }
+        else
+        {
+            const auto pendingIt = pParty->PendingQuestUpdates.find(message.Id);
+            hasQuest = pendingIt != pParty->PendingQuestUpdates.end() && pendingIt->second.Status != RequestQuestUpdate::Stopped;
+        }
+    }
+    else
+    {
+        const auto& entries = pPlayer->GetQuestLogComponent().QuestContent.Entries;
+        hasQuest = std::find_if(entries.begin(), entries.end(), [&message](const auto& entry) { return entry.Id == message.Id; }) != entries.end();
+    }
 
-    auto questIt = std::find_if(entries.begin(), entries.end(), [&message](const auto& e) { return e.Id == message.Id; });
+    if ((!pParty || pParty->HasQuestSnapshot) && message.Status != RequestQuestUpdate::Stopped && !hasQuest)
+    {
+        const auto& entries = pParty ? pParty->QuestContent.Entries : pPlayer->GetQuestLogComponent().QuestContent.Entries;
+        if (entries.size() >= std::numeric_limits<uint16_t>::max())
+            return;
+    }
 
     NotifyQuestUpdate notify{};
     notify.Id = message.Id;
     notify.Stage = message.Stage;
-    notify.Status = message.Status;
+    if (message.Status == RequestQuestUpdate::Stopped)
+        notify.Status = NotifyQuestUpdate::Stopped;
+    else if (hasQuest)
+        notify.Status = NotifyQuestUpdate::StageUpdate;
+    else
+        notify.Status = NotifyQuestUpdate::Started;
     notify.ClientQuestType = message.ClientQuestType;
 
     if (notify.ClientQuestType == 0 || notify.ClientQuestType == 6)
         spdlog::debug("{}: syncing type none/misc quest to party, gameId {:X} questStage {} questStatus {} questType {}",
                      __FUNCTION__, notify.Id.LogFormat(), notify.Stage, notify.Status, notify.ClientQuestType);
 
-    if (message.Status == RequestQuestUpdate::Started || message.Status == RequestQuestUpdate::StageUpdate)
+    if (pParty && !pParty->HasQuestSnapshot)
+    {
+        const auto pendingIt = pParty->PendingQuestUpdates.find(message.Id);
+        if (pendingIt == pParty->PendingQuestUpdates.end() && pParty->PendingQuestUpdates.size() >= std::numeric_limits<uint16_t>::max())
+            return;
+
+        pParty->PendingQuestUpdates[message.Id] = {message.Id, message.Stage, message.Status};
+    }
+    else if (pParty)
+    {
+        ApplyQuestChange(pParty->QuestContent, message.Id, message.Stage, message.Status);
+    }
+    else
+        ApplyQuestChange(pPlayer->GetQuestLogComponent().QuestContent, message.Id, message.Stage, message.Status);
+
+    if (!pParty)
+        return;
+
+    for (Player* pMember : pParty->Members)
+    {
+        if (pParty->HasQuestSnapshot)
+            pMember->GetQuestLogComponent().QuestContent = pParty->QuestContent;
+        else
+            ApplyQuestChange(pMember->GetQuestLogComponent().QuestContent, message.Id, message.Stage, message.Status);
+    }
+
+    GameServer::Get()->SendToParty(notify, pPlayer->GetParty(), acMessage.GetSender());
+}
+
+static void ApplyQuestChange(QuestLog& aQuestLog, const GameId aId, const uint16_t aStage, const uint8_t aStatus)
+{
+    if (aStatus == RequestQuestUpdate::Stopped)
+        aQuestLog.Remove(aId);
+    else
     {
         // in order to prevent bugs when a quest is in progress
         // and being updated we add it as a new quest record to
         // maintain a proper remote questlog state.
-        if (questIt == entries.end())
-        {
-            auto& newQuest = entries.emplace_back();
-            newQuest.Id = message.Id;
-            newQuest.Stage = message.Stage;
-
-            if (message.Status == RequestQuestUpdate::Started)
-            {
-                spdlog::debug("Started quest: {:X} stage: {}", message.Id.LogFormat(), message.Stage);
-
-                notify.Status = NotifyQuestUpdate::Started;
-            }
-            else
-            {
-                notify.Status = NotifyQuestUpdate::StageUpdate;
-            }
-        }
-        else
-        {
-            spdlog::debug("Updated quest: {:X}, stage: {}", message.Id.LogFormat(), message.Stage);
-
-            auto& record = *questIt;
-            record.Id = message.Id;
-            record.Stage = message.Stage;
-
-            notify.Status = NotifyQuestUpdate::StageUpdate;
-        }
+        aQuestLog.SetStage(aId, aStage);
     }
-    else if (message.Status == RequestQuestUpdate::Stopped)
-    {
-        spdlog::debug("Stopped quest: {:X}, stage: {}", message.Id.LogFormat(), message.Stage);
-
-        if (questIt != entries.end())
-            entries.erase(questIt);
-        else
-            spdlog::warn("Unable to delete quest object {:X}", message.Id.LogFormat());
-
-        notify.Status = NotifyQuestUpdate::Stopped;
-    }
-
-    const auto& partyComponent = acMessage.pPlayer->GetParty();
-    if (!partyComponent.JoinedPartyId.has_value())
-        return;
-
-    GameServer::Get()->SendToParty(notify, partyComponent, acMessage.GetSender());
 }

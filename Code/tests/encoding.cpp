@@ -745,6 +745,37 @@ TEST_CASE("Quest snapshot encoding", "[encoding.quest_snapshot]")
     REQUIRE(*decodedNotify == notify);
 }
 
+TEST_CASE("Quest log updates replace duplicate entries", "[encoding.quest_log]")
+{
+    QuestLog questLog{};
+    const GameId questId{2, 0x1234};
+
+    questLog.SetStage(questId, 20);
+    questLog.SetStage(questId, 45);
+
+    REQUIRE(questLog.Entries.size() == 1);
+    REQUIRE(questLog.Entries.front().Id == questId);
+    REQUIRE(questLog.Entries.front().Stage == 45);
+
+    questLog.Remove(questId);
+    questLog.Remove(questId);
+
+    REQUIRE(questLog.Entries.empty());
+}
+
+TEST_CASE("Quest log updates stay within wire count", "[encoding.quest_log]")
+{
+    QuestLog questLog{};
+    const GameId existingQuestId{2, 0x1234};
+    const GameId newQuestId{2, 0x5678};
+    questLog.Entries.assign(std::numeric_limits<uint16_t>::max(), QuestLog::Entry{existingQuestId, 20});
+
+    questLog.SetStage(newQuestId, 45);
+
+    REQUIRE(questLog.Entries.size() == std::numeric_limits<uint16_t>::max());
+    REQUIRE(std::find_if(questLog.Entries.begin(), questLog.Entries.end(), [&newQuestId](const auto& entry) { return entry.Id == newQuestId; }) == questLog.Entries.end());
+}
+
 TEST_CASE("Static structures", "[encoding.static]")
 {
     GIVEN("GameId")

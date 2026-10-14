@@ -4,6 +4,7 @@
 #include <TiltedCore/Serialization.hpp>
 #include <Structs/Mods.h>
 #include <algorithm>
+#include <limits>
 
 using TiltedPhoques::Serialization;
 
@@ -15,6 +16,21 @@ bool QuestLog::operator==(const QuestLog& acRhs) const noexcept
 bool QuestLog::operator!=(const QuestLog& acRhs) const noexcept
 {
     return !this->operator==(acRhs);
+}
+
+void QuestLog::SetStage(const GameId aId, const uint16_t aStage)
+{
+    const auto questIt = std::find_if(Entries.begin(), Entries.end(), [aId](const auto& entry) { return entry.Id == aId; });
+    if (questIt == Entries.end() && Entries.size() >= std::numeric_limits<uint16_t>::max())
+        return;
+
+    Remove(aId);
+    Entries.push_back({aId, aStage});
+}
+
+void QuestLog::Remove(const GameId aId)
+{
+    Entries.erase(std::remove_if(Entries.begin(), Entries.end(), [aId](const auto& entry) { return entry.Id == aId; }), Entries.end());
 }
 
 void QuestLog::Serialize(TiltedPhoques::Buffer::Writer& aWriter) const noexcept

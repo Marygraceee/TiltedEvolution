@@ -1,6 +1,8 @@
 #pragma once
 
 #include <Events/PacketEvent.h>
+#include <Structs/QuestLog.h>
+#include <unordered_map>
 
 struct World;
 struct UpdateEvent;
@@ -22,9 +24,19 @@ struct PartyService
 {
     struct Party
     {
-        uint32_t LeaderPlayerId;
+        struct QuestChange
+        {
+            GameId Id{};
+            uint16_t Stage{};
+            uint8_t Status{};
+        };
+
+        uint32_t LeaderPlayerId{};
         Vector<Player*> Members;
         GameId CachedWeather{};
+        QuestLog QuestContent{};
+        std::unordered_map<GameId, QuestChange> PendingQuestUpdates;
+        bool HasQuestSnapshot{};
     };
 
     PartyService(World& aWorld, entt::dispatcher& aDispatcher) noexcept;
