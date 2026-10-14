@@ -275,7 +275,28 @@ void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChan
         }
     }
 
-    inventoryComponent.Content.AddOrRemoveEntry(message.Item);
+    Inventory::Entry inventoryChange = message.Item;
+    if (message.Drop)
+    {
+        auto storedEntry = std::find_if(
+            inventoryComponent.Content.Entries.begin(), inventoryComponent.Content.Entries.end(),
+            [&message](const Inventory::Entry& acEntry) { return acEntry.CanBeMerged(message.Item); });
+
+        if (storedEntry == inventoryComponent.Content.Entries.end())
+        {
+            storedEntry = std::find_if(
+                inventoryComponent.Content.Entries.begin(), inventoryComponent.Content.Entries.end(),
+                [&message](const Inventory::Entry& acEntry) { return acEntry.BaseId == message.Item.BaseId && acEntry.IsExtraDataEqualsIgnoringWorn(message.Item); });
+        }
+
+        if (storedEntry != inventoryComponent.Content.Entries.end())
+        {
+            inventoryChange.ExtraWorn = storedEntry->ExtraWorn;
+            inventoryChange.ExtraWornLeft = storedEntry->ExtraWornLeft;
+        }
+    }
+
+    inventoryComponent.Content.AddOrRemoveEntry(inventoryChange);
 
     if (dropId != 0)
     {
@@ -313,7 +334,7 @@ void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChan
     NotifyInventoryChanges notify;
     notify.ServerId = message.ServerId;
     notify.OwnershipEpoch = message.OwnershipEpoch;
-    notify.Item = message.Item;
+    notify.Item = inventoryChange;
 
     notify.DropId = dropId;
     notify.HasDroppedObject = shouldNotifyDroppedItem;

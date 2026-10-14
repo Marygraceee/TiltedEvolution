@@ -640,6 +640,29 @@ TEST_CASE("Dropped item assignment encoding", "[encoding.dropped_item]")
     REQUIRE(*decodedNotify == notify);
 }
 
+TEST_CASE("Inventory entries distinguish worn status from item data", "[encoding.inventory]")
+{
+    Inventory::Entry wornItem{};
+    wornItem.BaseId = GameId{4, 900};
+    wornItem.ExtraWorn = true;
+
+    Inventory::Entry unwornItem = wornItem;
+    unwornItem.ExtraWorn = false;
+
+    REQUIRE_FALSE(wornItem.CanBeMerged(unwornItem));
+    REQUIRE(wornItem.IsExtraDataEqualsIgnoringWorn(unwornItem));
+
+    Inventory::Entry leftWornItem = wornItem;
+    leftWornItem.ExtraWorn = false;
+    leftWornItem.ExtraWornLeft = true;
+
+    REQUIRE_FALSE(wornItem.CanBeMerged(leftWornItem));
+    REQUIRE(wornItem.IsExtraDataEqualsIgnoringWorn(leftWornItem));
+
+    unwornItem.ExtraCharge = 10.f;
+    REQUIRE_FALSE(wornItem.IsExtraDataEqualsIgnoringWorn(unwornItem));
+}
+
 TEST_CASE("Dropped item assignment encoding supports a full session snapshot", "[encoding.dropped_item]")
 {
     AssignObjectsResponse response{};
