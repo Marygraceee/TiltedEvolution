@@ -1061,6 +1061,9 @@ void CharacterService::OnInitPackageEvent(const InitPackageEvent& acEvent) const
         return;
 
     const entt::entity cActorEntity = *actorIt;
+    const auto* pLocalComponent = m_world.try_get<LocalComponent>(cActorEntity);
+    if (!pLocalComponent)
+        return;
 
     std::optional<uint32_t> actorServerIdRes = Utils::GetServerId(cActorEntity);
     if (!actorServerIdRes.has_value())
@@ -1071,6 +1074,7 @@ void CharacterService::OnInitPackageEvent(const InitPackageEvent& acEvent) const
 
     NewPackageRequest request;
     request.ActorId = actorServerIdRes.value();
+    request.OwnershipEpoch = pLocalComponent->OwnershipEpoch;
     if (!m_world.GetModSystem().GetServerModId(acEvent.PackageId, request.PackageId.ModId, request.PackageId.BaseId))
         return;
 
@@ -1089,9 +1093,14 @@ void CharacterService::OnNotifyNewPackage(const NotifyNewPackage& acMessage) con
     }
 
     auto formIdComponent = remoteView.get<FormIdComponent>(*remoteIt);
+    const auto& remoteComponent = remoteView.get<RemoteComponent>(*remoteIt);
+    if (remoteComponent.OwnershipEpoch != acMessage.OwnershipEpoch)
+        return;
 
     const TESForm* pForm = TESForm::GetById(formIdComponent.Id);
     Actor* pActor = Cast<Actor>(pForm);
+    if (!pActor)
+        return;
 
     const uint32_t cPackageFormId = World::Get().GetModSystem().GetGameId(acMessage.PackageId);
     const TESForm* pPackageForm = TESForm::GetById(cPackageFormId);
@@ -1102,6 +1111,8 @@ void CharacterService::OnNotifyNewPackage(const NotifyNewPackage& acMessage) con
     }
 
     TESPackage* pPackage = Cast<TESPackage>(pPackageForm);
+    if (!pPackage)
+        return;
 
     pActor->SetPackage(pPackage);
 }

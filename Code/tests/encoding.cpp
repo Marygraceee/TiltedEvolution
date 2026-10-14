@@ -24,6 +24,8 @@
 #include <Messages/RequestQuestSnapshot.h>
 #include <Messages/NotifyInventoryChanges.h>
 #include <Messages/NotifyQuestSnapshot.h>
+#include <Messages/NewPackageRequest.h>
+#include <Messages/NotifyNewPackage.h>
 #include <Structs/Vector2_NetQuantize.h>
 #include <Structs/GridCellCoords.h>
 #include <Structs/ObjectData.h>
@@ -48,6 +50,41 @@ TEST_CASE("Movement ownership epochs round trip", "[encoding.movement]")
     received.Deserialize(reader);
 
     REQUIRE(received == sent);
+}
+
+TEST_CASE("NPC package messages preserve ownership epochs", "[encoding.package]")
+{
+    NewPackageRequest request{};
+    request.ActorId = 42;
+    request.OwnershipEpoch = 271;
+    request.PackageId = GameId{3, 0x1234};
+
+    Buffer requestBuffer(1000);
+    Buffer::Writer requestWriter(&requestBuffer);
+    request.Serialize(requestWriter);
+
+    Buffer::Reader requestReader(&requestBuffer);
+    const ClientMessageFactory clientFactory;
+    auto requestMessage = clientFactory.Extract(requestReader);
+    REQUIRE(requestMessage);
+    auto decodedRequest = CastUnique<NewPackageRequest>(std::move(requestMessage));
+    REQUIRE(*decodedRequest == request);
+
+    NotifyNewPackage notify{};
+    notify.ActorId = request.ActorId;
+    notify.OwnershipEpoch = request.OwnershipEpoch;
+    notify.PackageId = request.PackageId;
+
+    Buffer notifyBuffer(1000);
+    Buffer::Writer notifyWriter(&notifyBuffer);
+    notify.Serialize(notifyWriter);
+
+    Buffer::Reader notifyReader(&notifyBuffer);
+    const ServerMessageFactory serverFactory;
+    auto notifyMessage = serverFactory.Extract(notifyReader);
+    REQUIRE(notifyMessage);
+    auto decodedNotify = CastUnique<NotifyNewPackage>(std::move(notifyMessage));
+    REQUIRE(*decodedNotify == notify);
 }
 
 TEST_CASE("Grid cell ranges handle integer boundaries", "[encoding.grid_cell]")

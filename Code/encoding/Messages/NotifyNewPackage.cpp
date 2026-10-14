@@ -3,6 +3,7 @@
 void NotifyNewPackage::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter) const noexcept
 {
     Serialization::WriteVarInt(aWriter, ActorId);
+    Serialization::WriteVarInt(aWriter, OwnershipEpoch);
     PackageId.Serialize(aWriter);
 }
 
@@ -11,5 +12,6 @@ void NotifyNewPackage::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) no
     ServerMessage::DeserializeRaw(aReader);
 
     ActorId = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
+    OwnershipEpoch = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
     PackageId.Deserialize(aReader);
 }
