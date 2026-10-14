@@ -49,6 +49,8 @@ void CombatService::OnProjectileLaunchedEvent(const ProjectileLaunchedEvent& acE
         return;
 
     LocalComponent& localComponent = view.get<LocalComponent>(*shooterEntityIt);
+    if (localComponent.OwnershipEpoch == 0)
+        return;
 
     ProjectileLaunchRequest request{};
 
@@ -61,6 +63,7 @@ void CombatService::OnProjectileLaunchedEvent(const ProjectileLaunchedEvent& acE
     modSystem.GetServerModId(acEvent.AmmoID, request.AmmoID);
 
     request.ShooterID = localComponent.Id;
+    request.OwnershipEpoch = localComponent.OwnershipEpoch;
 
     request.ZAngle = acEvent.ZAngle;
     request.XAngle = acEvent.XAngle;
@@ -89,6 +92,9 @@ void CombatService::OnProjectileLaunchedEvent(const ProjectileLaunchedEvent& acE
 
 void CombatService::OnNotifyProjectileLaunch(const NotifyProjectileLaunch& acMessage) const noexcept
 {
+    if (acMessage.CastingSource < 0 || acMessage.CastingSource >= 4)
+        return;
+
     ModSystem& modSystem = World::Get().GetModSystem();
 
     auto remoteView = m_world.view<RemoteComponent, FormIdComponent>();
@@ -99,6 +105,9 @@ void CombatService::OnNotifyProjectileLaunch(const NotifyProjectileLaunch& acMes
         spdlog::warn("Shooter with remote id {:X} not found.", acMessage.ShooterID);
         return;
     }
+
+    if (remoteView.get<RemoteComponent>(*remoteIt).OwnershipEpoch != acMessage.OwnershipEpoch)
+        return;
 
     FormIdComponent formIdComponent = remoteView.get<FormIdComponent>(*remoteIt);
 
@@ -116,6 +125,8 @@ void CombatService::OnNotifyProjectileLaunch(const NotifyProjectileLaunch& acMes
     }
 
     launchData.pShooter = Cast<TESObjectREFR>(TESForm::GetById(formIdComponent.Id));
+    if (!launchData.pShooter)
+        return;
 
     launchData.Origin.x = acMessage.OriginX;
     launchData.Origin.y = acMessage.OriginY;
@@ -123,6 +134,8 @@ void CombatService::OnNotifyProjectileLaunch(const NotifyProjectileLaunch& acMes
 
     const uint32_t cProjectileBaseId = modSystem.GetGameId(acMessage.ProjectileBaseID);
     launchData.pProjectileBase = TESForm::GetById(cProjectileBaseId);
+    if (!launchData.pProjectileBase)
+        return;
 
     const uint32_t cFromWeaponId = modSystem.GetGameId(acMessage.WeaponID);
     launchData.pFromWeapon = Cast<TESObjectWEAP>(TESForm::GetById(cFromWeaponId));

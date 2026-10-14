@@ -30,6 +30,8 @@
 #include <Messages/NotifySpellCast.h>
 #include <Messages/InterruptCastRequest.h>
 #include <Messages/NotifyInterruptCast.h>
+#include <Messages/ProjectileLaunchRequest.h>
+#include <Messages/NotifyProjectileLaunch.h>
 #include <Messages/AddTargetRequest.h>
 #include <Messages/NotifyAddTarget.h>
 #include <Messages/RemoveSpellRequest.h>
@@ -259,6 +261,83 @@ TEST_CASE("Add target messages preserve ownership epochs", "[encoding.add_target
     auto notifyMessage = serverFactory.Extract(notifyReader);
     REQUIRE(notifyMessage);
     auto decodedNotify = CastUnique<NotifyAddTarget>(std::move(notifyMessage));
+    REQUIRE(*decodedNotify == notify);
+}
+
+TEST_CASE("Projectile launch messages preserve ownership epochs", "[encoding.projectile_launch]")
+{
+    ProjectileLaunchRequest request{};
+    request.ShooterID = 11;
+    request.OwnershipEpoch = 271;
+    request.OriginX = 1.5f;
+    request.OriginY = 2.5f;
+    request.OriginZ = 3.5f;
+    request.ProjectileBaseID = GameId{3, 0x1234};
+    request.WeaponID = GameId{4, 0x5678};
+    request.AmmoID = GameId{5, 0x9ABC};
+    request.ZAngle = 0.5f;
+    request.XAngle = 1.5f;
+    request.YAngle = 2.5f;
+    request.ParentCellID = GameId{6, 0xDEF0};
+    request.SpellID = GameId{7, 0x1234};
+    request.CastingSource = 3;
+    request.Area = 4;
+    request.Power = 5.5f;
+    request.Scale = 6.5f;
+    request.AlwaysHit = true;
+    request.NoDamageOutsideCombat = true;
+    request.AutoAim = true;
+    request.DeferInitialization = true;
+    request.ForceConeOfFire = true;
+    request.UnkBool1 = true;
+    request.UnkBool2 = true;
+
+    Buffer requestBuffer(1000);
+    Buffer::Writer requestWriter(&requestBuffer);
+    request.Serialize(requestWriter);
+
+    Buffer::Reader requestReader(&requestBuffer);
+    const ClientMessageFactory clientFactory;
+    auto requestMessage = clientFactory.Extract(requestReader);
+    REQUIRE(requestMessage);
+    auto decodedRequest = CastUnique<ProjectileLaunchRequest>(std::move(requestMessage));
+    REQUIRE(*decodedRequest == request);
+
+    NotifyProjectileLaunch notify{};
+    notify.ShooterID = request.ShooterID;
+    notify.OwnershipEpoch = request.OwnershipEpoch;
+    notify.OriginX = request.OriginX;
+    notify.OriginY = request.OriginY;
+    notify.OriginZ = request.OriginZ;
+    notify.ProjectileBaseID = request.ProjectileBaseID;
+    notify.WeaponID = request.WeaponID;
+    notify.AmmoID = request.AmmoID;
+    notify.ZAngle = request.ZAngle;
+    notify.XAngle = request.XAngle;
+    notify.YAngle = request.YAngle;
+    notify.ParentCellID = request.ParentCellID;
+    notify.SpellID = request.SpellID;
+    notify.CastingSource = request.CastingSource;
+    notify.Area = request.Area;
+    notify.Power = request.Power;
+    notify.Scale = request.Scale;
+    notify.AlwaysHit = request.AlwaysHit;
+    notify.NoDamageOutsideCombat = request.NoDamageOutsideCombat;
+    notify.AutoAim = request.AutoAim;
+    notify.DeferInitialization = request.DeferInitialization;
+    notify.ForceConeOfFire = request.ForceConeOfFire;
+    notify.UnkBool1 = request.UnkBool1;
+    notify.UnkBool2 = request.UnkBool2;
+
+    Buffer notifyBuffer(1000);
+    Buffer::Writer notifyWriter(&notifyBuffer);
+    notify.Serialize(notifyWriter);
+
+    Buffer::Reader notifyReader(&notifyBuffer);
+    const ServerMessageFactory serverFactory;
+    auto notifyMessage = serverFactory.Extract(notifyReader);
+    REQUIRE(notifyMessage);
+    auto decodedNotify = CastUnique<NotifyProjectileLaunch>(std::move(notifyMessage));
     REQUIRE(*decodedNotify == notify);
 }
 

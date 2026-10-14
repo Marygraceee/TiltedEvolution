@@ -5,6 +5,7 @@
 
 #include <Messages/ProjectileLaunchRequest.h>
 #include <Messages/NotifyProjectileLaunch.h>
+#include <cmath>
 
 CombatService::CombatService(World& aWorld, entt::dispatcher& aDispatcher) noexcept
     : m_world(aWorld)
@@ -14,11 +15,20 @@ CombatService::CombatService(World& aWorld, entt::dispatcher& aDispatcher) noexc
 
 void CombatService::OnProjectileLaunchRequest(const PacketEvent<ProjectileLaunchRequest>& acMessage) const noexcept
 {
-    auto& packet = acMessage.Packet;
+    const auto& packet = acMessage.Packet;
+    if (packet.CastingSource < 0 || packet.CastingSource >= 4 || !std::isfinite(packet.OriginX) || !std::isfinite(packet.OriginY) || !std::isfinite(packet.OriginZ) ||
+        !std::isfinite(packet.ZAngle) || !std::isfinite(packet.XAngle) || !std::isfinite(packet.YAngle) || !std::isfinite(packet.Power) || !std::isfinite(packet.Scale))
+        return;
+
+    auto view = m_world.view<OwnerComponent>();
+    const auto shooterIt = view.find(static_cast<entt::entity>(packet.ShooterID));
+    if (shooterIt == view.end() || !view.get<OwnerComponent>(*shooterIt).IsCurrentOwner(acMessage.pPlayer, packet.OwnershipEpoch))
+        return;
 
     NotifyProjectileLaunch notify{};
 
     notify.ShooterID = packet.ShooterID;
+    notify.OwnershipEpoch = packet.OwnershipEpoch;
 
     notify.OriginX = packet.OriginX;
     notify.OriginY = packet.OriginY;
@@ -50,7 +60,6 @@ void CombatService::OnProjectileLaunchRequest(const PacketEvent<ProjectileLaunch
     notify.UnkBool1 = packet.UnkBool1;
     notify.UnkBool2 = packet.UnkBool2;
 
-    const auto cShooterEntity = static_cast<entt::entity>(packet.ShooterID);
-    if (!GameServer::Get()->SendToPlayersInRange(notify, cShooterEntity, acMessage.GetSender()))
+    if (!GameServer::Get()->SendToPlayersInRange(notify, *shooterIt, acMessage.GetSender()))
         spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
 }

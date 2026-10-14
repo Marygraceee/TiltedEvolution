@@ -3,6 +3,7 @@
 void ProjectileLaunchRequest::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter) const noexcept
 {
     Serialization::WriteVarInt(aWriter, ShooterID);
+    Serialization::WriteVarInt(aWriter, OwnershipEpoch);
 
     Serialization::WriteFloat(aWriter, OriginX);
     Serialization::WriteFloat(aWriter, OriginY);
@@ -40,6 +41,7 @@ void ProjectileLaunchRequest::DeserializeRaw(TiltedPhoques::Buffer::Reader& aRea
     ClientMessage::DeserializeRaw(aReader);
 
     ShooterID = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
+    OwnershipEpoch = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
 
     OriginX = Serialization::ReadFloat(aReader);
     OriginY = Serialization::ReadFloat(aReader);

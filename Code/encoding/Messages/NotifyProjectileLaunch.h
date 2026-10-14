@@ -17,17 +17,15 @@ struct NotifyProjectileLaunch final : ServerMessage
 
     bool operator==(const NotifyProjectileLaunch& acRhs) const noexcept
     {
-        return ShooterID == acRhs.ShooterID && OriginX == acRhs.OriginX && OriginY == acRhs.OriginY &&
-               OriginZ == acRhs.OriginZ && ProjectileBaseID == acRhs.ProjectileBaseID && WeaponID == acRhs.WeaponID &&
-               AmmoID == acRhs.AmmoID && ZAngle == acRhs.ZAngle && XAngle == acRhs.XAngle && YAngle == acRhs.YAngle &&
-               ParentCellID == acRhs.ParentCellID && SpellID == acRhs.SpellID && CastingSource == acRhs.CastingSource &&
-               Area == acRhs.Area && Power == acRhs.Power && Scale == acRhs.Scale && AlwaysHit == acRhs.AlwaysHit &&
-               NoDamageOutsideCombat == acRhs.NoDamageOutsideCombat && AutoAim == acRhs.AutoAim &&
-               DeferInitialization == acRhs.DeferInitialization && ForceConeOfFire == acRhs.ForceConeOfFire &&
-               UnkBool1 == acRhs.UnkBool1 && UnkBool2 == acRhs.UnkBool2;
+        return ShooterID == acRhs.ShooterID && OwnershipEpoch == acRhs.OwnershipEpoch && OriginX == acRhs.OriginX && OriginY == acRhs.OriginY && OriginZ == acRhs.OriginZ &&
+               ProjectileBaseID == acRhs.ProjectileBaseID && WeaponID == acRhs.WeaponID && AmmoID == acRhs.AmmoID && ZAngle == acRhs.ZAngle && XAngle == acRhs.XAngle &&
+               YAngle == acRhs.YAngle && ParentCellID == acRhs.ParentCellID && SpellID == acRhs.SpellID && CastingSource == acRhs.CastingSource && Area == acRhs.Area &&
+               Power == acRhs.Power && Scale == acRhs.Scale && AlwaysHit == acRhs.AlwaysHit && NoDamageOutsideCombat == acRhs.NoDamageOutsideCombat && AutoAim == acRhs.AutoAim &&
+               DeferInitialization == acRhs.DeferInitialization && ForceConeOfFire == acRhs.ForceConeOfFire && UnkBool1 == acRhs.UnkBool1 && UnkBool2 == acRhs.UnkBool2;
     }
 
     uint32_t ShooterID{};
+    uint32_t OwnershipEpoch{};
     float OriginX{};
     float OriginY{};
     float OriginZ{};
