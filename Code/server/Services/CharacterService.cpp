@@ -485,7 +485,7 @@ void CharacterService::OnActionEventsRequest(const PacketEvent<RequestActionEven
                 acceptedActions.push_back(action);
         }
 
-        view.get<AnimationComponent>(*itor).ActionsReplayCache.AppendAll(actions);
+        view.get<AnimationComponent>(*itor).ActionsReplayCache.AppendAll(acceptedActions);
 
         if (!acceptedActions.empty())
             GameServer::Get()->SendToPlayersInRange(notify, entity, acMessage.pPlayer);
