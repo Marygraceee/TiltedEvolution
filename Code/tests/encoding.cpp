@@ -46,6 +46,7 @@
 #include <Messages/NotifyNewPackage.h>
 #include <Structs/Vector2_NetQuantize.h>
 #include <Structs/GridCellCoords.h>
+#include <Structs/ActorValues.h>
 #include <Structs/ObjectData.h>
 #include <Structs/Movement.h>
 
@@ -774,6 +775,15 @@ TEST_CASE("Quest log updates stay within wire count", "[encoding.quest_log]")
 
     REQUIRE(questLog.Entries.size() == std::numeric_limits<uint16_t>::max());
     REQUIRE(std::find_if(questLog.Entries.begin(), questLog.Entries.end(), [&newQuestId](const auto& entry) { return entry.Id == newQuestId; }) == questLog.Entries.end());
+}
+
+TEST_CASE("Actor value updates reject invalid entries", "[encoding.actor_values]")
+{
+    REQUIRE(ActorValues::IsValidValue(0, 1.f));
+    REQUIRE(ActorValues::IsValidValue(ActorValues::kValueCount - 1, 1.f));
+    REQUIRE_FALSE(ActorValues::IsValidValue(ActorValues::kValueCount, 1.f));
+    REQUIRE_FALSE(ActorValues::IsValidValue(0, std::numeric_limits<float>::infinity()));
+    REQUIRE_FALSE(ActorValues::IsValidValue(0, std::numeric_limits<float>::quiet_NaN()));
 }
 
 TEST_CASE("Static structures", "[encoding.static]")

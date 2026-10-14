@@ -34,6 +34,7 @@
 #include <Messages/NotifyRespawn.h>
 #include <Messages/SyncExperienceRequest.h>
 #include <Messages/NotifySyncExperience.h>
+#include <Structs/ActorValues.h>
 #include <Messages/DialogueRequest.h>
 #include <Messages/NotifyDialogue.h>
 #include <Messages/SubtitleRequest.h>
@@ -719,7 +720,16 @@ void CharacterService::CreateCharacter(const PacketEvent<AssignCharacterRequest>
     inventoryComponent.Content = message.CurrentActorData.InitialInventory;
 
     auto& actorValuesComponent = m_world.emplace<ActorValuesComponent>(cEntity);
-    actorValuesComponent.CurrentActorValues = message.CurrentActorData.InitialActorValues;
+    for (const auto& [id, value] : message.CurrentActorData.InitialActorValues.ActorValuesList)
+    {
+        if (ActorValues::IsValidValue(id, value))
+            actorValuesComponent.CurrentActorValues.ActorValuesList.insert({id, value});
+    }
+    for (const auto& [id, value] : message.CurrentActorData.InitialActorValues.ActorMaxValuesList)
+    {
+        if (ActorValues::IsValidValue(id, value))
+            actorValuesComponent.CurrentActorValues.ActorMaxValuesList.insert({id, value});
+    }
 
     spdlog::debug("FormId: {:x}:{:x} - NpcId: {:x}:{:x} assigned to {:x}", gameId.ModId, gameId.BaseId, baseId.ModId, baseId.BaseId, acMessage.pPlayer->GetConnectionId());
 

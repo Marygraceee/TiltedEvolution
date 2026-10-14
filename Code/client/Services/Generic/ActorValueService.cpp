@@ -20,8 +20,12 @@
 #include <Messages/RequestHealthChangeBroadcast.h>
 #include <Messages/NotifyDeathStateChange.h>
 #include <Messages/RequestDeathStateChange.h>
+#include <Structs/ActorValues.h>
 
 #include <misc/ActorValueOwner.h>
+#include <cmath>
+
+static_assert(ActorValues::kValueCount == ActorValueInfo::kActorValueCount);
 
 ActorValueService::ActorValueService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept
     : m_world(aWorld)
@@ -339,6 +343,9 @@ void ActorValueService::OnHealthChangeBroadcast(const NotifyHealthChangeBroadcas
     }
 
     const float newHealth = pActor->GetActorValue(ActorValueInfo::kHealth) + acMessage.DeltaHealth;
+    if (!std::isfinite(newHealth))
+        return;
+
     pActor->ForceActorValue(ActorValueOwner::ForceMode::DAMAGE, ActorValueInfo::kHealth, newHealth);
 
     const float health = pActor->GetActorValue(ActorValueInfo::kHealth);
@@ -378,6 +385,9 @@ void ActorValueService::OnActorValueChanges(const NotifyActorValueChanges& acMes
 
     for (const auto& [key, value] : acMessage.Values)
     {
+        if (!ActorValues::IsValidValue(key, value))
+            continue;
+
         // Syncing dragon souls triggers "Dragon soul collected" event
         if (key == ActorValueInfo::kDragonSouls || key == ActorValueInfo::kHealth)
             continue;
@@ -414,6 +424,9 @@ void ActorValueService::OnActorMaxValueChanges(const NotifyActorMaxValueChanges&
 
     for (const auto& [key, value] : acMessage.Values)
     {
+        if (!ActorValues::IsValidValue(key, value))
+            continue;
+
         if (key == ActorValueInfo::kDragonSouls)
             continue;
 

@@ -10,6 +10,7 @@
 #include <Messages/NotifyActorMaxValueChanges.h>
 #include <Messages/NotifyHealthChangeBroadcast.h>
 #include <Messages/NotifyDeathStateChange.h>
+#include <Structs/ActorValues.h>
 #include <cmath>
 
 ActorValueService::ActorValueService(World& aWorld, entt::dispatcher& aDispatcher) noexcept
@@ -33,15 +34,21 @@ void ActorValueService::OnActorValueChanges(const PacketEvent<RequestActorValueC
         return;
 
     auto& actorValuesComponent = actorValuesView.get<ActorValuesComponent>(*it);
+    NotifyActorValueChanges notify;
     for (auto& [id, value] : message.Values)
     {
+        if (!ActorValues::IsValidValue(id, value))
+            continue;
+
         actorValuesComponent.CurrentActorValues.ActorValuesList[id] = value;
+        notify.Values.insert({id, value});
     }
 
-    NotifyActorValueChanges notify;
+    if (notify.Values.empty())
+        return;
+
     notify.OwnershipEpoch = message.OwnershipEpoch;
     notify.Id = acMessage.Packet.Id;
-    notify.Values = acMessage.Packet.Values;
 
     const entt::entity cEntity = static_cast<entt::entity>(message.Id);
     if (!GameServer::Get()->SendToPlayersInRange(notify, cEntity, acMessage.pPlayer))
@@ -60,15 +67,21 @@ void ActorValueService::OnActorMaxValueChanges(const PacketEvent<RequestActorMax
         return;
 
     auto& actorValuesComponent = actorValuesView.get<ActorValuesComponent>(*it);
+    NotifyActorMaxValueChanges notify;
     for (auto& [id, value] : message.Values)
     {
+        if (!ActorValues::IsValidValue(id, value))
+            continue;
+
         actorValuesComponent.CurrentActorValues.ActorMaxValuesList[id] = value;
+        notify.Values.insert({id, value});
     }
 
-    NotifyActorMaxValueChanges notify;
+    if (notify.Values.empty())
+        return;
+
     notify.OwnershipEpoch = message.OwnershipEpoch;
     notify.Id = message.Id;
-    notify.Values = message.Values;
 
     const entt::entity cEntity = static_cast<entt::entity>(message.Id);
     if (!GameServer::Get()->SendToPlayersInRange(notify, cEntity, acMessage.pPlayer))
@@ -97,8 +110,12 @@ void ActorValueService::OnHealthChangeBroadcast(const PacketEvent<RequestHealthC
         return;
 
     auto& actorValuesComponent = actorValuesView.get<ActorValuesComponent>(*it);
-    auto currentHealth = actorValuesComponent.CurrentActorValues.ActorValuesList[24];
-    actorValuesComponent.CurrentActorValues.ActorValuesList[24] = currentHealth + message.DeltaHealth;
+    const auto currentHealth = actorValuesComponent.CurrentActorValues.ActorValuesList[24];
+    const auto updatedHealth = currentHealth + message.DeltaHealth;
+    if (!std::isfinite(updatedHealth))
+        return;
+
+    actorValuesComponent.CurrentActorValues.ActorValuesList[24] = updatedHealth;
 
     NotifyHealthChangeBroadcast notify;
     notify.Id = message.Id;
