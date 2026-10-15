@@ -141,7 +141,12 @@ void InventoryService::OnInventoryChangeEvent(const InventoryChangeEvent& acEven
             pickup.OwnershipEpoch = acEvent.OwnershipEpoch;
             pickup.Item = acEvent.Item;
             pickup.UpdateClients = acEvent.UpdateClients;
-            m_pendingLocalDropPickups.try_emplace(acEvent.ReferenceFormId, pickup);
+            const auto [pickupIt, inserted] = m_pendingLocalDropPickups.try_emplace(acEvent.ReferenceFormId, pickup);
+            if (!inserted)
+            {
+                pickupIt->second.Item.Count += acEvent.Item.Count;
+                pickupIt->second.UpdateClients = pickupIt->second.UpdateClients || acEvent.UpdateClients;
+            }
             waitingForLocalDropPickup = true;
         }
         else if (acEvent.Drop)
@@ -329,19 +334,29 @@ void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& ac
         }
     }
 
-    const auto updatePendingInventory = [this, actorEntity, &acMessage]()
+    const auto updatePendingInventory = [this, actorEntity](const Inventory::Entry& acItem)
     {
         if (actorEntity == entt::null)
             return;
 
         auto* pWaitingFor3D = m_world.try_get<WaitingFor3D>(actorEntity);
         if (pWaitingFor3D)
-            pWaitingFor3D->SpawnRequest.InventoryContent.AddOrRemoveEntry(acMessage.Item);
+            pWaitingFor3D->SpawnRequest.InventoryContent.AddOrRemoveEntry(acItem);
     };
 
     if (acMessage.DropRejected)
     {
-        const bool pickedUpBeforeRejection = acMessage.ReferenceFormId != 0 && m_pendingLocalDropPickups.erase(acMessage.ReferenceFormId) != 0;
+        int32_t pickedUpCount = 0;
+        if (acMessage.ReferenceFormId != 0)
+        {
+            const auto pendingPickup = m_pendingLocalDropPickups.find(acMessage.ReferenceFormId);
+            if (pendingPickup != m_pendingLocalDropPickups.end())
+            {
+                pickedUpCount = pendingPickup->second.Item.Count;
+                m_pendingLocalDropPickups.erase(pendingPickup);
+            }
+        }
+
         const bool hadPendingDrop = acMessage.ReferenceFormId == 0 || m_pendingLocalDropForms.erase(acMessage.ReferenceFormId) != 0;
 
         if (hadPendingDrop && acMessage.ReferenceFormId != 0)
@@ -352,13 +367,18 @@ void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& ac
                 pDroppedReference->Delete();
         }
 
-        if (hadPendingDrop && !pickedUpBeforeRejection && acMessage.Item.Count > 0)
+        if (hadPendingDrop && acMessage.Item.Count > 0)
         {
-            updatePendingInventory();
-            if (pActor)
+            Inventory::Entry correction = acMessage.Item;
+            correction.Count = std::max(0, correction.Count - pickedUpCount);
+            if (correction.Count > 0)
             {
-                ScopedInventoryOverride inventoryOverride;
-                pActor->AddOrRemoveItem(acMessage.Item);
+                updatePendingInventory(correction);
+                if (pActor)
+                {
+                    ScopedInventoryOverride inventoryOverride;
+                    pActor->AddOrRemoveItem(correction);
+                }
             }
         }
         return;
@@ -369,7 +389,7 @@ void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& ac
         if (acMessage.HasDroppedObject)
         {
             if (acMessage.Item.Count != 0)
-                updatePendingInventory();
+                updatePendingInventory(acMessage.Item);
 
             if (pActor && acMessage.Item.Count != 0)
             {
@@ -381,19 +401,19 @@ void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& ac
         }
         else if (pActor && acMessage.Item.Count != 0)
         {
-            updatePendingInventory();
+            updatePendingInventory(acMessage.Item);
             ScopedInventoryOverride _;
             pActor->DropOrPickUpObject(acMessage.Item, nullptr, nullptr);
         }
         else if (acMessage.Item.Count != 0)
-            updatePendingInventory();
+            updatePendingInventory(acMessage.Item);
         return;
     }
 
     if (acMessage.DropId != 0)
     {
         if (acMessage.Item.Count != 0)
-            updatePendingInventory();
+            updatePendingInventory(acMessage.Item);
 
         if (pActor && acMessage.Item.Count != 0)
         {
@@ -430,7 +450,7 @@ void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& ac
     }
 
     if (acMessage.OwnershipEpoch != 0 && acMessage.Item.Count != 0)
-        updatePendingInventory();
+        updatePendingInventory(acMessage.Item);
 
     if (!pActor)
     {
