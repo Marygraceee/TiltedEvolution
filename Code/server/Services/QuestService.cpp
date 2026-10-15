@@ -40,6 +40,8 @@ void QuestService::OnQuestSnapshot(const PacketEvent<RequestQuestSnapshot>& acMe
         }
         pParty->PendingQuestUpdates.clear();
     }
+    else
+        pParty->QuestContent = acMessage.Packet.QuestContent;
 
     for (Player* pMember : pParty->Members)
         pMember->GetQuestLogComponent().QuestContent = pParty->QuestContent;
