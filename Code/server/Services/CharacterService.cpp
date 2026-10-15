@@ -397,6 +397,9 @@ void CharacterService::OnReferencesMoveRequest(const PacketEvent<ClientReference
             continue;
 
         auto& movementComponent = view.get<MovementComponent>(*itor);
+        if (message.Tick <= movementComponent.Tick)
+            continue;
+
         auto& cellIdComponent = view.get<CellIdComponent>(*itor);
         const auto& characterComponent = view.get<CharacterComponent>(*itor);
         const CellIdComponent previousCell = cellIdComponent;
