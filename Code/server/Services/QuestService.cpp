@@ -32,11 +32,17 @@ void QuestService::OnQuestSnapshot(const PacketEvent<RequestQuestSnapshot>& acMe
 
     if (!pParty->HasQuestSnapshot)
     {
+        const QuestLog pendingObjectiveContent = pParty->QuestContent;
         pParty->QuestContent = acMessage.Packet.QuestContent;
         pParty->HasQuestSnapshot = true;
         for (const auto& [questId, change] : pParty->PendingQuestUpdates)
         {
             ApplyQuestChange(pParty->QuestContent, questId, change.Stage, change.Status);
+        }
+        for (const auto& entry : pendingObjectiveContent.Entries)
+        {
+            for (const auto& objective : entry.Objectives)
+                pParty->QuestContent.SetObjectiveState(entry.Id, objective.Index, objective.Flags);
         }
         pParty->PendingQuestUpdates.clear();
     }
@@ -54,12 +60,68 @@ void QuestService::OnQuestSnapshot(const PacketEvent<RequestQuestSnapshot>& acMe
 void QuestService::OnQuestChanges(const PacketEvent<RequestQuestUpdate>& acMessage) noexcept
 {
     const auto& message = acMessage.Packet;
-    if (message.Status > RequestQuestUpdate::Stopped)
-        return;
-
     Player* pPlayer = acMessage.pPlayer;
     auto& partyService = m_world.GetPartyService();
     auto* pParty = partyService.GetPlayerParty(pPlayer);
+
+    if (message.Status == RequestQuestUpdate::ObjectiveUpdate)
+    {
+        constexpr uint8_t knownObjectiveFlags = QuestLog::ObjectiveDisplayed | QuestLog::ObjectiveCompleted | QuestLog::ObjectiveFailed;
+        if ((message.ClientQuestType & ~knownObjectiveFlags) != 0 ||
+            (message.ClientQuestType & (QuestLog::ObjectiveCompleted | QuestLog::ObjectiveFailed)) == (QuestLog::ObjectiveCompleted | QuestLog::ObjectiveFailed))
+            return;
+
+        auto& senderContent = pPlayer->GetQuestLogComponent().QuestContent;
+        auto senderQuestIt = std::find_if(senderContent.Entries.begin(), senderContent.Entries.end(), [&message](const auto& entry) { return entry.Id == message.Id; });
+        if (senderQuestIt == senderContent.Entries.end())
+            return;
+
+        QuestLog& questContent = pParty ? pParty->QuestContent : senderContent;
+        uint16_t questStage = senderQuestIt->Stage;
+        auto questIt = std::find_if(questContent.Entries.begin(), questContent.Entries.end(), [&message](const auto& entry) { return entry.Id == message.Id; });
+        if (pParty && pParty->HasQuestSnapshot)
+        {
+            if (questIt == questContent.Entries.end())
+                return;
+            questStage = questIt->Stage;
+        }
+        else if (questIt == questContent.Entries.end() || questIt->Stage != questStage)
+        {
+            if (!questContent.SetStage(message.Id, questStage))
+                return;
+        }
+
+        if (!questContent.SetObjectiveState(message.Id, message.Stage, message.ClientQuestType))
+            return;
+
+        if (!pParty)
+        {
+            return;
+        }
+
+        for (Player* pMember : pParty->Members)
+        {
+            if (pParty->HasQuestSnapshot)
+                pMember->GetQuestLogComponent().QuestContent = pParty->QuestContent;
+            else
+            {
+                auto& memberContent = pMember->GetQuestLogComponent().QuestContent;
+                memberContent.SetStage(message.Id, questStage);
+                memberContent.SetObjectiveState(message.Id, message.Stage, message.ClientQuestType);
+            }
+        }
+
+        NotifyQuestUpdate notify{};
+        notify.Id = message.Id;
+        notify.Stage = message.Stage;
+        notify.Status = NotifyQuestUpdate::ObjectiveUpdate;
+        notify.ClientQuestType = message.ClientQuestType;
+        GameServer::Get()->SendToParty(notify, pPlayer->GetParty(), acMessage.GetSender());
+        return;
+    }
+
+    if (message.Status > RequestQuestUpdate::Stopped)
+        return;
 
     bool hasQuest = false;
     if (pParty)

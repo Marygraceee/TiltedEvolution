@@ -839,23 +839,98 @@ TEST_CASE("Quest snapshot encoding", "[encoding.quest_snapshot]")
     REQUIRE(*decodedNotify == notify);
 }
 
+TEST_CASE("Quest objective updates preserve objective state", "[encoding.quest_update]")
+{
+    RequestQuestUpdate request{};
+    request.Id = GameId{2, 0x1234};
+    request.Stage = 12;
+    request.Status = RequestQuestUpdate::ObjectiveUpdate;
+    request.ClientQuestType = QuestLog::ObjectiveDisplayed | QuestLog::ObjectiveCompleted;
+
+    Buffer requestBuffer(1000);
+    Buffer::Writer requestWriter(&requestBuffer);
+    request.Serialize(requestWriter);
+
+    Buffer::Reader requestReader(&requestBuffer);
+    const ClientMessageFactory clientFactory;
+    auto requestMessage = clientFactory.Extract(requestReader);
+    REQUIRE(requestMessage);
+    auto decodedRequest = CastUnique<RequestQuestUpdate>(std::move(requestMessage));
+    REQUIRE(*decodedRequest == request);
+
+    NotifyQuestUpdate notify{};
+    notify.Id = request.Id;
+    notify.Stage = request.Stage;
+    notify.Status = NotifyQuestUpdate::ObjectiveUpdate;
+    notify.ClientQuestType = request.ClientQuestType;
+
+    Buffer notifyBuffer(1000);
+    Buffer::Writer notifyWriter(&notifyBuffer);
+    notify.Serialize(notifyWriter);
+
+    Buffer::Reader notifyReader(&notifyBuffer);
+    const ServerMessageFactory serverFactory;
+    auto notifyMessage = serverFactory.Extract(notifyReader);
+    REQUIRE(notifyMessage);
+    auto decodedNotify = CastUnique<NotifyQuestUpdate>(std::move(notifyMessage));
+    REQUIRE(*decodedNotify == notify);
+}
+
 TEST_CASE("Quest log updates replace duplicate entries", "[encoding.quest_log]")
 {
     QuestLog questLog{};
     const GameId questId{2, 0x1234};
 
     REQUIRE(questLog.SetStage(questId, 20));
+    REQUIRE(questLog.SetObjectiveState(questId, 4, QuestLog::ObjectiveDisplayed));
     REQUIRE_FALSE(questLog.SetStage(questId, 20));
     REQUIRE(questLog.SetStage(questId, 45));
 
     REQUIRE(questLog.Entries.size() == 1);
     REQUIRE(questLog.Entries.front().Id == questId);
     REQUIRE(questLog.Entries.front().Stage == 45);
+    REQUIRE(questLog.Entries.front().Objectives.size() == 1);
+    REQUIRE(questLog.Entries.front().Objectives.front().Flags == QuestLog::ObjectiveDisplayed);
 
     questLog.Remove(questId);
     questLog.Remove(questId);
 
     REQUIRE(questLog.Entries.empty());
+}
+
+TEST_CASE("Quest objective states validate and replace duplicate indices", "[encoding.quest_log]")
+{
+    QuestLog questLog{};
+    const GameId questId{2, 0x1234};
+
+    REQUIRE(questLog.SetStage(questId, 20));
+    REQUIRE(questLog.SetObjectiveState(questId, 4, QuestLog::ObjectiveDisplayed));
+    REQUIRE_FALSE(questLog.SetObjectiveState(questId, 4, QuestLog::ObjectiveDisplayed));
+    REQUIRE(questLog.SetObjectiveState(questId, 4, QuestLog::ObjectiveDisplayed | QuestLog::ObjectiveCompleted));
+    REQUIRE_FALSE(questLog.SetObjectiveState(questId, 4, QuestLog::ObjectiveCompleted | QuestLog::ObjectiveFailed));
+    REQUIRE_FALSE(questLog.SetObjectiveState(questId, 4, 0x80));
+
+    REQUIRE(questLog.Entries.front().Objectives.size() == 1);
+    REQUIRE(questLog.Entries.front().Objectives.front().Flags == (QuestLog::ObjectiveDisplayed | QuestLog::ObjectiveCompleted));
+}
+
+TEST_CASE("Quest objective states round trip through quest log encoding", "[encoding.quest_log]")
+{
+    QuestLog sent{};
+    const GameId questId{3, 0x5678};
+    REQUIRE(sent.SetStage(questId, 40));
+    REQUIRE(sent.SetObjectiveState(questId, 12, QuestLog::ObjectiveDisplayed | QuestLog::ObjectiveCompleted));
+    REQUIRE(sent.SetObjectiveState(questId, 30, QuestLog::ObjectiveFailed));
+
+    Buffer buffer(256);
+    Buffer::Writer writer(&buffer);
+    sent.Serialize(writer);
+
+    QuestLog received{};
+    Buffer::Reader reader(&buffer);
+    received.Deserialize(reader);
+
+    REQUIRE(received == sent);
 }
 
 TEST_CASE("Quest log updates stay within wire count", "[encoding.quest_log]")

@@ -21,7 +21,8 @@ struct NotifyQuestUpdate final : ServerMessage
     {
         StageUpdate,
         Started,
-        Stopped
+        Stopped,
+        ObjectiveUpdate
     };
 
     GameId Id;
