@@ -166,8 +166,26 @@ void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChan
         const auto indexedEntity = m_droppedItemsByLocalReference.find(referenceKey);
         if (indexedEntity != m_droppedItemsByLocalReference.end())
         {
-            if (m_world.valid(indexedEntity->second) && droppedView.find(indexedEntity->second) != droppedView.end())
-                return;
+            if (m_world.valid(indexedEntity->second))
+            {
+                const auto existingDrop = droppedView.find(indexedEntity->second);
+                if (existingDrop != droppedView.end())
+                {
+                    const auto& droppedItem = droppedView.get<DroppedItemComponent>(*existingDrop);
+                    NotifyInventoryChanges notify;
+                    notify.ServerId = message.ServerId;
+                    notify.OwnershipEpoch = message.OwnershipEpoch;
+                    notify.Item = message.Item;
+                    notify.Item.Count = 0;
+                    notify.DropId = droppedItem.Data.ServerId;
+                    notify.DroppedObject = droppedItem.Data;
+                    notify.HasDroppedObject = true;
+                    notify.Drop = true;
+                    notify.ReferenceFormId = message.ReferenceFormId;
+                    acMessage.pPlayer->Send(notify);
+                    return;
+                }
+            }
             m_droppedItemsByLocalReference.erase(indexedEntity);
         }
     }
