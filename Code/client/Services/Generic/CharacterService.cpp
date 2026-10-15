@@ -576,7 +576,7 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
     }
 
     PlayerCharacter* pPlayer = PlayerCharacter::Get();
-    if (!pPlayer || !pPlayer->GetParentCellEx())
+    if (!pPlayer || !pPlayer->GetParentCellEx() || (pPlayer->GetWorldSpace() && !TES::Get()))
     {
         if (m_transport.IsConnected())
         {
