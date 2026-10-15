@@ -1458,7 +1458,7 @@ void CharacterService::RequestServerAssignment(const entt::entity aEntity) const
     TESObjectCELL* pCell = pActor->parentCell;
     if (!pCell)
     {
-        m_pendingCellAssignments.emplace(aEntity, true);
+        m_pendingCellAssignments.insert(aEntity);
         return;
     }
 
@@ -1931,9 +1931,8 @@ void CharacterService::RunLocalUpdates() const noexcept
 
     auto pendingCellAssignments = std::move(m_pendingCellAssignments);
     m_pendingCellAssignments.clear();
-    for (const auto& pendingAssignment : pendingCellAssignments)
+    for (const entt::entity entity : pendingCellAssignments)
     {
-        const entt::entity entity = pendingAssignment.first;
         if (!m_world.valid(entity) || !m_world.all_of<FormIdComponent>(entity) || m_world.any_of<RemoteComponent, LocalComponent, WaitingForAssignmentComponent>(entity))
             continue;
 
