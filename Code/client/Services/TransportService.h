@@ -56,10 +56,13 @@ protected:
     void HandleNotifySettingsChange(const NotifySettingsChange& acMessage) noexcept;
 
 private:
+    void SendAuthenticationRequest();
+
     World& m_world;
     entt::dispatcher& m_dispatcher;
     bool m_connected;
     String m_serverPassword{};
+    bool m_authenticationPending{};
     uint32_t m_localPlayerId;
     double m_lastPollTime{};
 

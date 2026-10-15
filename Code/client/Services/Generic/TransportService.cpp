@@ -112,6 +112,17 @@ void TransportService::OnConsume(const void* apData, uint32_t aSize)
 
 void TransportService::OnConnected()
 {
+    if (PlayerCharacter::Get())
+    {
+        SendAuthenticationRequest();
+        return;
+    }
+
+    m_authenticationPending = true;
+}
+
+void TransportService::SendAuthenticationRequest()
+{
     AuthenticationRequest request{};
     request.Version = BUILD_BRANCH "@" BUILD_COMMIT;
     request.SKSEActive = IsScriptExtenderLoaded();
@@ -169,6 +180,7 @@ void TransportService::OnConnected()
 
 void TransportService::OnDisconnected(EDisconnectReason aReason)
 {
+    m_authenticationPending = false;
     m_connected = false;
 
     spdlog::warn("Disconnected from server {}", aReason);
@@ -178,6 +190,14 @@ void TransportService::OnDisconnected(EDisconnectReason aReason)
 
 void TransportService::OnUpdate()
 {
+    if (!m_authenticationPending)
+        return;
+
+    if (!PlayerCharacter::Get())
+        return;
+
+    m_authenticationPending = false;
+    SendAuthenticationRequest();
 }
 
 double TransportService::GetMessageReceiveTime() const noexcept
