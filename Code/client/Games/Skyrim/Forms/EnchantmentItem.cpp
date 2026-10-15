@@ -30,7 +30,11 @@ EnchantmentItem* EnchantmentItem::Create(const Inventory::EnchantmentData& aData
         effectItem.fRawCost = effect.RawCost;
         effectItem.pEffectSetting = Cast<EffectSetting>(TESForm::GetById(modSystem.GetGameId(effect.EffectId)));
         if (!effectItem.pEffectSetting)
+        {
             spdlog::error("Effect setting not found: {:X}:{:X}", effect.EffectId.ModId, effect.EffectId.BaseId);
+            Memory::Free(effects.data);
+            return nullptr;
+        }
 
         // TODO: TESCondition?
 
