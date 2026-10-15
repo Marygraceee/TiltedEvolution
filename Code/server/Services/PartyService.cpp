@@ -435,6 +435,7 @@ void PartyService::BroadcastPartyInfo(uint32_t aPartyId) const noexcept
 
     NotifyPartyInfo message;
     message.LeaderPlayerId = party.LeaderPlayerId;
+    message.QuestRevision = party.QuestRevision;
 
     for (auto pPlayer : members)
     {

@@ -438,6 +438,7 @@ void QuestService::OnPartyInfo(const NotifyPartyInfo& acPartyInfo) noexcept
     const ObjectiveBoolQuery isObjectiveCompleted(isObjectiveCompletedAddress);
     const ObjectiveBoolQuery isObjectiveFailed(isObjectiveFailedAddress);
     RequestQuestSnapshot request{};
+    request.QuestRevision = acPartyInfo.QuestRevision;
     auto& modSystem = m_world.GetModSystem();
     std::unordered_map<GameId, std::size_t> entriesByQuestId;
     entriesByQuestId.reserve(ModManager::Get()->quests.length);

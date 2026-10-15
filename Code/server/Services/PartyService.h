@@ -37,6 +37,7 @@ struct PartyService
         GameId CachedWeather{};
         QuestLog QuestContent{};
         std::unordered_map<GameId, QuestChange> PendingQuestUpdates;
+        uint64_t QuestRevision{};
         bool HasQuestSnapshot{};
     };
 

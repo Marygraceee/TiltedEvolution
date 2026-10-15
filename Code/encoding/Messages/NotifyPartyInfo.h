@@ -20,9 +20,13 @@ struct NotifyPartyInfo final : ServerMessage
     void SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter) const noexcept override;
     void DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) noexcept override;
 
-    bool operator==(const NotifyPartyInfo& acRhs) const noexcept { return GetOpcode() == acRhs.GetOpcode() && PlayerIds == acRhs.PlayerIds && LeaderPlayerId == acRhs.LeaderPlayerId; }
+    bool operator==(const NotifyPartyInfo& acRhs) const noexcept
+    {
+        return GetOpcode() == acRhs.GetOpcode() && PlayerIds == acRhs.PlayerIds && LeaderPlayerId == acRhs.LeaderPlayerId && QuestRevision == acRhs.QuestRevision;
+    }
 
     Vector<uint32_t> PlayerIds{};
     bool IsLeader;
     uint32_t LeaderPlayerId;
+    uint64_t QuestRevision{};
 };

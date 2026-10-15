@@ -37,6 +37,17 @@ void QuestService::OnQuestSnapshot(const PacketEvent<RequestQuestSnapshot>& acMe
     if (!acMessage.Packet.QuestContent.IsValid())
         return;
 
+    if (pParty->HasQuestSnapshot && acMessage.Packet.QuestRevision != pParty->QuestRevision)
+    {
+        NotifyQuestSnapshot notify{};
+        notify.QuestContent = pParty->QuestContent;
+        pPlayer->Send(notify);
+        return;
+    }
+
+    if (!pParty->HasQuestSnapshot && acMessage.Packet.QuestRevision > pParty->QuestRevision)
+        return;
+
     if (!pParty->HasQuestSnapshot)
     {
         const QuestLog pendingObjectiveContent = pParty->QuestContent;
@@ -57,6 +68,8 @@ void QuestService::OnQuestSnapshot(const PacketEvent<RequestQuestSnapshot>& acMe
     }
     else
         pParty->QuestContent = acMessage.Packet.QuestContent;
+
+    ++pParty->QuestRevision;
 
     for (Player* pMember : pParty->Members)
         pMember->GetQuestLogComponent().QuestContent = pParty->QuestContent;
@@ -137,6 +150,9 @@ void QuestService::OnQuestChanges(const PacketEvent<RequestQuestUpdate>& acMessa
 
         if (!changed)
             return;
+
+        if (pParty)
+            ++pParty->QuestRevision;
 
         if (!pParty)
         {
@@ -259,6 +275,9 @@ void QuestService::OnQuestChanges(const PacketEvent<RequestQuestUpdate>& acMessa
     }
     else
         ApplyQuestChange(pPlayer->GetQuestLogComponent().QuestContent, message.Id, message.Stage, notify.Status, stateFlags);
+
+    if (pParty)
+        ++pParty->QuestRevision;
 
     if (!pParty)
         return;

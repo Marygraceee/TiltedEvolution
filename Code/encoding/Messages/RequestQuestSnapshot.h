@@ -15,7 +15,11 @@ struct RequestQuestSnapshot final : ClientMessage
     void SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter) const noexcept override;
     void DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) noexcept override;
 
-    bool operator==(const RequestQuestSnapshot& acRhs) const noexcept { return GetOpcode() == acRhs.GetOpcode() && QuestContent == acRhs.QuestContent; }
+    bool operator==(const RequestQuestSnapshot& acRhs) const noexcept
+    {
+        return GetOpcode() == acRhs.GetOpcode() && QuestRevision == acRhs.QuestRevision && QuestContent == acRhs.QuestContent;
+    }
 
+    uint64_t QuestRevision{};
     QuestLog QuestContent{};
 };
