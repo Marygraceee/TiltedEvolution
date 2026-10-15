@@ -99,6 +99,29 @@ void PlayerService::HandleGridCellShift(const PacketEvent<ShiftGridCellRequest>&
     {
         if (m_world.all_of<CellIdComponent>(*character))
             m_world.replace<CellIdComponent>(*character, currentCell);
+
+        const bool isDragon = m_world.get<CharacterComponent>(*character).IsDragon();
+        for (Player* otherPlayer : m_world.GetPlayerManager())
+        {
+            if (otherPlayer == pPlayer)
+                continue;
+
+            const auto transition = CellIdComponent::GetRangeTransition(previousCell, currentCell, otherPlayer->GetCellComponent(), isDragon);
+            if (transition == CellIdComponent::RangeTransition::None)
+                continue;
+
+            if (transition == CellIdComponent::RangeTransition::Left)
+            {
+                NotifyRemoveCharacter removeMessage{};
+                removeMessage.ServerId = World::ToInteger(*character);
+                otherPlayer->Send(removeMessage);
+                continue;
+            }
+
+            CharacterSpawnRequest spawnMessage;
+            CharacterService::Serialize(m_world, *character, &spawnMessage);
+            otherPlayer->Send(spawnMessage);
+        }
     }
 
     m_world.GetDispatcher().trigger(PlayerLeaveCellEvent(previousCell.Cell));
