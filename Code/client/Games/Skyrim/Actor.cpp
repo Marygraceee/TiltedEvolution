@@ -1100,6 +1100,7 @@ void* TP_MAKE_THISCALL(HookPickUpObject, Actor, TESObjectREFR* apObject, int32_t
         QueueActorInventoryChange(apThis, std::move(event));
     }
 
+    ScopedInventoryOverride _;
     return TiltedPhoques::ThisCall(RealPickUpObject, apThis, apObject, aCount, aUnk1, aUnk2);
 }
 
