@@ -28,6 +28,7 @@
 #include <Messages/RequestInventoryChanges.h>
 #include <Messages/RequestHealthChangeBroadcast.h>
 #include <Messages/NotifyHealthChangeBroadcast.h>
+#include <Messages/ShiftGridCellRequest.h>
 #include <Messages/SpellCastRequest.h>
 #include <Messages/NotifySpellCast.h>
 #include <Messages/InterruptCastRequest.h>
@@ -1190,7 +1191,7 @@ TEST_CASE("Differential structures", "[encoding.differential]")
     GIVEN("AnimationVariables")
     {
         AnimationVariables vars, recvVars;
- 
+
         vars.Booleans.resize(76);
         String testString("\xDE\xAD\xBE\xEF"
                           "\xDE\xAD\xBE\xEF\x76\xB");
@@ -1335,6 +1336,29 @@ TEST_CASE("Packets", "[encoding.packets]")
 
         uint64_t trash;
         reader.ReadBits(trash, 8); // pop opcode
+
+        recvMessage.DeserializeRaw(reader);
+
+        REQUIRE(sendMessage == recvMessage);
+    }
+
+    SECTION("ShiftGridCellRequest")
+    {
+        Buffer buff(1000);
+
+        ShiftGridCellRequest sendMessage, recvMessage;
+        sendMessage.WorldSpaceId = GameId{2, 3};
+        sendMessage.PlayerCell = GameId{4, 5};
+        sendMessage.CenterCoords = GridCellCoords{-12, 34};
+        sendMessage.Cells.emplace_back(-13, 33);
+        sendMessage.Cells.emplace_back(-13, 34);
+
+        Buffer::Writer writer(&buff);
+        sendMessage.Serialize(writer);
+
+        Buffer::Reader reader(&buff);
+        uint64_t trash;
+        reader.ReadBits(trash, 8);
 
         recvMessage.DeserializeRaw(reader);
 

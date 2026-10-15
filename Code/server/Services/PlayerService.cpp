@@ -55,7 +55,7 @@ void UpdateCharacterVisibility(
             if (!hasNewlyLoadedCells || !acCurrentCell.IsInRange(characterCell, characterComponent.IsDragon()))
                 continue;
 
-            const auto cellIt = std::find(apGridShift->Cells.begin(), apGridShift->Cells.end(), characterCell.Cell);
+            const auto cellIt = std::find(apGridShift->Cells.begin(), apGridShift->Cells.end(), characterCell.CenterCoords);
             if (cellIt == apGridShift->Cells.end())
                 continue;
         }

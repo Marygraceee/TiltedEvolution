@@ -184,14 +184,7 @@ void DiscoveryService::DetectGridCellChange(TESWorldSpace* aWorldSpace, bool aNe
                 continue;
             }
 
-            GameId cellId{};
-            if (!m_world.GetModSystem().GetServerModId(pCell->formID, cellId))
-            {
-                spdlog::error("Failed to find cell id for form id {:X}", pCell->formID);
-                continue;
-            }
-
-            changeEvent.Cells.push_back(cellId);
+            changeEvent.Cells.emplace_back(startGridX + i, startGridY + j);
         }
     }
 
