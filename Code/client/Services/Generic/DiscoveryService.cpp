@@ -220,6 +220,10 @@ void DiscoveryService::DetectGridCellChange(TESWorldSpace* aWorldSpace, bool aNe
 
 void DiscoveryService::VisitForms() noexcept
 {
+    PlayerCharacter* pPlayer = PlayerCharacter::Get();
+    if (!pPlayer)
+        return;
+
     static Set<uint32_t> s_previousForms;
     s_previousForms = m_forms;
 
@@ -254,7 +258,7 @@ void DiscoveryService::VisitForms() noexcept
     }
 
     // Not in actor holder
-    visitor(PlayerCharacter::Get());
+    visitor(pPlayer);
 
     // We dispatch removal events first to prevent needless reallocations
     for (uint32_t formId : s_previousForms)
