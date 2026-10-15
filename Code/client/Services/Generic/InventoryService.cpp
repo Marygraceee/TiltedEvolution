@@ -46,6 +46,32 @@ InventoryService::InventoryService(World& aWorld, entt::dispatcher& aDispatcher,
 void InventoryService::OnUpdate(const UpdateEvent& acUpdateEvent) noexcept
 {
     RunWeaponStateUpdates();
+
+    if (m_pendingDroppedItems.empty())
+    {
+        m_pendingDroppedItemRetryTimer = 0.0;
+        return;
+    }
+
+    m_pendingDroppedItemRetryTimer += acUpdateEvent.Delta;
+    if (m_pendingDroppedItemRetryTimer < 0.25)
+        return;
+
+    m_pendingDroppedItemRetryTimer = 0.0;
+    Vector<uint32_t> pendingDropIds;
+    pendingDropIds.reserve(m_pendingDroppedItems.size());
+    for (const auto& pendingDrop : m_pendingDroppedItems)
+        pendingDropIds.push_back(pendingDrop.first);
+
+    for (const uint32_t dropId : pendingDropIds)
+    {
+        const auto pendingIt = m_pendingDroppedItems.find(dropId);
+        if (pendingIt == m_pendingDroppedItems.end())
+            continue;
+
+        const ObjectData pendingData = pendingIt->second;
+        ApplyDroppedItem(pendingData);
+    }
 }
 
 void InventoryService::OnInventoryChangeEvent(const InventoryChangeEvent& acEvent) noexcept
@@ -445,18 +471,18 @@ void InventoryService::OnAssignObjectsResponse(const AssignObjectsResponse& acMe
         ApplyDroppedItem(object);
     }
 
+    const auto isInRequestedArea = [&acMessage](const ObjectData& aData)
+    {
+        if (acMessage.WorldSpaceId)
+            return aData.WorldSpaceId == acMessage.WorldSpaceId && GridCellCoords::IsCellInGridCell(aData.CurrentCoords, acMessage.CurrentCoords, false);
+
+        return !aData.WorldSpaceId && aData.CellId == acMessage.CellId;
+    };
+
     Vector<uint32_t> dropsToRemove;
     for (const auto& [dropId, droppedData] : m_droppedServerData)
     {
-        if (assignedDropIds.contains(dropId))
-            continue;
-
-        if (acMessage.WorldSpaceId)
-        {
-            if (droppedData.WorldSpaceId != acMessage.WorldSpaceId || !GridCellCoords::IsCellInGridCell(droppedData.CurrentCoords, acMessage.CurrentCoords, false))
-                continue;
-        }
-        else if (droppedData.WorldSpaceId || droppedData.CellId != acMessage.CellId)
+        if (assignedDropIds.contains(dropId) || !isInRequestedArea(droppedData))
             continue;
 
         dropsToRemove.push_back(dropId);
@@ -464,6 +490,32 @@ void InventoryService::OnAssignObjectsResponse(const AssignObjectsResponse& acMe
 
     for (uint32_t dropId : dropsToRemove)
         RemoveDroppedItem(dropId, true);
+
+    for (auto pendingIt = m_pendingDroppedItems.begin(); pendingIt != m_pendingDroppedItems.end();)
+    {
+        if (assignedDropIds.contains(pendingIt->first) || !isInRequestedArea(pendingIt->second))
+        {
+            ++pendingIt;
+            continue;
+        }
+
+        const uint32_t localReferenceId = pendingIt->second.LocalReferenceId;
+        if (localReferenceId != 0)
+        {
+            m_pendingLocalDropForms.erase(localReferenceId);
+            if (!m_localDroppedForms.contains(localReferenceId))
+            {
+                TESObjectREFR* pReference = Cast<TESObjectREFR>(TESForm::GetById(localReferenceId));
+                if (pReference && pReference->IsTemporary())
+                {
+                    ScopedReferencesOverride referencesOverride;
+                    pReference->Delete();
+                }
+            }
+        }
+
+        pendingIt = m_pendingDroppedItems.erase(pendingIt);
+    }
 }
 
 void InventoryService::OnDisconnected(const DisconnectedEvent&) noexcept
@@ -497,12 +549,17 @@ void InventoryService::OnDisconnected(const DisconnectedEvent&) noexcept
 
     m_pendingLocalDropForms.clear();
     m_pendingLocalDropPickups.clear();
+    m_pendingDroppedItems.clear();
+    m_pendingDroppedItemRetryTimer = 0.0;
 }
 
 void InventoryService::ApplyDroppedItem(const ObjectData& acData) noexcept
 {
     if (!acData.IsDroppedItem || acData.ServerId == 0 || acData.CurrentInventory.Entries.size() != 1)
+    {
+        m_pendingDroppedItems.erase(acData.ServerId);
         return;
+    }
 
     const auto& item = acData.CurrentInventory.Entries.front();
     if (acData.LocalReferenceId != 0)
@@ -510,6 +567,7 @@ void InventoryService::ApplyDroppedItem(const ObjectData& acData) noexcept
         const auto pendingPickup = m_pendingLocalDropPickups.find(acData.LocalReferenceId);
         if (pendingPickup != m_pendingLocalDropPickups.end())
         {
+            m_pendingDroppedItems.erase(acData.ServerId);
             m_pendingLocalDropForms.erase(acData.LocalReferenceId);
             TrackDroppedItem(acData, acData.LocalReferenceId, true);
 
@@ -536,7 +594,10 @@ void InventoryService::ApplyDroppedItem(const ObjectData& acData) noexcept
     const auto pendingPickup =
         std::find_if(m_pendingLocalDropPickups.begin(), m_pendingLocalDropPickups.end(), [&acData](const auto& entry) { return entry.second.DropId == acData.ServerId; });
     if (pendingPickup != m_pendingLocalDropPickups.end())
+    {
+        m_pendingDroppedItems.erase(acData.ServerId);
         return;
+    }
 
     if (item.Count <= 0)
     {
@@ -571,15 +632,10 @@ uint32_t InventoryService::SpawnDroppedItem(const ObjectData& acData) noexcept
 
     PlayerCharacter* pPlayer = PlayerCharacter::Get();
     if (!pPlayer)
+    {
+        m_pendingDroppedItems.insert_or_assign(acData.ServerId, acData);
         return 0;
-
-    const auto& item = acData.CurrentInventory.Entries.front();
-    NiPoint3 position{glm::vec3(acData.Position.x, acData.Position.y, acData.Position.z)};
-    NiPoint3 rotation{glm::vec3(acData.Rotation.x, 0.f, acData.Rotation.y)};
-    const uint32_t formId = pPlayer->CreateDroppedObject(item, &position, &rotation);
-    TESObjectREFR* pReference = Cast<TESObjectREFR>(TESForm::GetById(formId));
-    if (!pReference)
-        return 0;
+    }
 
     ModSystem& modSystem = m_world.GetModSystem();
     TESObjectCELL* pCell = nullptr;
@@ -594,9 +650,17 @@ uint32_t InventoryService::SpawnDroppedItem(const ObjectData& acData) noexcept
 
     if (!pCell)
     {
-        pReference->Delete();
+        m_pendingDroppedItems.insert_or_assign(acData.ServerId, acData);
         return 0;
     }
+
+    const auto& item = acData.CurrentInventory.Entries.front();
+    NiPoint3 position{glm::vec3(acData.Position.x, acData.Position.y, acData.Position.z)};
+    NiPoint3 rotation{glm::vec3(acData.Rotation.x, 0.f, acData.Rotation.y)};
+    const uint32_t formId = pPlayer->CreateDroppedObject(item, &position, &rotation);
+    TESObjectREFR* pReference = Cast<TESObjectREFR>(TESForm::GetById(formId));
+    if (!pReference)
+        return 0;
 
     if (pReference->GetParentCellEx() != pCell)
         pReference->MoveTo(pCell, position);
@@ -627,6 +691,8 @@ void InventoryService::TrackDroppedItem(const ObjectData& acData, const uint32_t
 
 void InventoryService::RemoveDroppedItem(const uint32_t aDropId, const bool aDeleteReference) noexcept
 {
+    m_pendingDroppedItems.erase(aDropId);
+
     const auto dropIt = m_droppedServerIdToForm.find(aDropId);
     if (dropIt == m_droppedServerIdToForm.end())
         return;

@@ -95,7 +95,9 @@ private:
     std::unordered_map<uint32_t, uint32_t> m_droppedFormToServerId;
     std::unordered_map<uint32_t, uint32_t> m_droppedServerIdToForm;
     std::unordered_map<uint32_t, ObjectData> m_droppedServerData;
+    std::unordered_map<uint32_t, ObjectData> m_pendingDroppedItems;
     std::unordered_set<uint32_t> m_localDroppedForms;
     std::unordered_set<uint32_t> m_pendingLocalDropForms;
     std::unordered_map<uint32_t, PendingLocalDropPickup> m_pendingLocalDropPickups;
+    double m_pendingDroppedItemRetryTimer{};
 };
