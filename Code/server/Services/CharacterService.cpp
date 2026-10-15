@@ -426,13 +426,13 @@ void CharacterService::OnReferencesMoveRequest(const PacketEvent<ClientReference
 
             const bool wasInRange = previousCell.IsInRange(pPlayer->GetCellComponent(), characterComponent.IsDragon());
             const bool isInRange = cellIdComponent.IsInRange(pPlayer->GetCellComponent(), characterComponent.IsDragon());
-            if (!characterComponent.IsPlayer() && wasInRange && !isInRange)
+            if (wasInRange && !isInRange)
             {
                 pPlayer->Send(removeMessage);
                 continue;
             }
 
-            if (!characterComponent.IsPlayer() && !wasInRange && isInRange)
+            if (!wasInRange && isInRange)
             {
                 if (!spawnMessageReady)
                 {
