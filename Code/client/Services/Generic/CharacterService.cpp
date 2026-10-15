@@ -69,6 +69,35 @@
 #include <World.h>
 #include <Games/TES.h>
 
+static bool IsSpawnWithinLoadedArea(
+    World& aWorld, PlayerCharacter& aPlayer, const GameId& acCellId, const GameId& acWorldSpaceId, const float aX, const float aY, const bool aIsDragon) noexcept
+{
+    TESObjectCELL* pCell = aPlayer.GetParentCellEx();
+    if (!pCell)
+        return false;
+
+    if (TESWorldSpace* pWorldSpace = aPlayer.GetWorldSpace())
+    {
+        GameId playerWorldSpaceId{};
+        if (!aWorld.GetModSystem().GetServerModId(pWorldSpace->formID, playerWorldSpaceId) || playerWorldSpaceId != acWorldSpaceId)
+            return false;
+
+        const TES* pTES = TES::Get();
+        if (!pTES)
+            return false;
+
+        const GridCellCoords playerCoords{pTES->centerGridX, pTES->centerGridY};
+        const GridCellCoords spawnCoords = GridCellCoords::CalculateGridCellCoords(aX, aY);
+        return GridCellCoords::IsCellInGridCell(spawnCoords, playerCoords, aIsDragon);
+    }
+
+    if (acWorldSpaceId != GameId{})
+        return false;
+
+    GameId playerCellId{};
+    return aWorld.GetModSystem().GetServerModId(pCell->formID, playerCellId) && playerCellId == acCellId;
+}
+
 CharacterService::CharacterService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept
     : m_world(aWorld)
     , m_dispatcher(aDispatcher)
@@ -521,13 +550,9 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
     if (!pPlayer)
         return;
 
-    GameId playerWorldSpaceId{};
-    if (TESWorldSpace* pWorldSpace = pPlayer->GetWorldSpace(); pWorldSpace && !m_world.GetModSystem().GetServerModId(pWorldSpace->formID, playerWorldSpaceId))
-        return;
-
-    if (playerWorldSpaceId != acMessage.WorldSpaceId)
+    if (!IsSpawnWithinLoadedArea(m_world, *pPlayer, acMessage.CellId, acMessage.WorldSpaceId, acMessage.Position.x, acMessage.Position.y, acMessage.IsDragon))
     {
-        spdlog::debug("Discarded spawn for actor {:X} because it belongs to another worldspace", acMessage.ServerId);
+        spdlog::debug("Discarded spawn for actor {:X} because it is outside the current loaded area", acMessage.ServerId);
         return;
     }
 
@@ -2083,40 +2108,31 @@ void CharacterService::RunSpawnUpdates() const noexcept
 {
     auto invisibleView = m_world.view<RemoteComponent, InterpolationComponent, RemoteAnimationComponent, WaitingFor3D>(entt::exclude<FormIdComponent>);
     Vector<entt::entity> entities(invisibleView.begin(), invisibleView.end());
+    PlayerCharacter* pPlayer = PlayerCharacter::Get();
+    if (!pPlayer)
+        return;
 
     for (const auto entity : entities)
     {
         auto& remoteComponent = m_world.get<RemoteComponent>(entity);
         auto& interpolationComponent = m_world.get<InterpolationComponent>(entity);
+        const auto& spawnRequest = invisibleView.get<WaitingFor3D>(entity).SpawnRequest;
+        // TODO(cosideci): IsDragon probably shouldn't be straight up false here.
+        if (!IsSpawnWithinLoadedArea(
+                m_world, *pPlayer, spawnRequest.CellId, spawnRequest.WorldSpaceId, interpolationComponent.Position.x, interpolationComponent.Position.y, spawnRequest.IsDragon))
+            continue;
 
-        if (const auto pWorldSpace = PlayerCharacter::Get()->GetWorldSpace())
+        auto* pActor = Cast<Actor>(TESForm::GetById(remoteComponent.CachedRefId));
+        if (!pActor)
         {
-            float characterX = interpolationComponent.Position.x;
-            float characterY = interpolationComponent.Position.y;
-            const auto characterCoords = GridCellCoords::CalculateGridCellCoords(characterX, characterY);
-            const TES* pTES = TES::Get();
-            const auto playerCoords = GridCellCoords(pTES->centerGridX, pTES->centerGridY);
-            const auto& spawnRequest = invisibleView.get<WaitingFor3D>(entity).SpawnRequest;
-            GameId playerWorldSpaceId{};
-            if (!m_world.GetModSystem().GetServerModId(pWorldSpace->formID, playerWorldSpaceId) || playerWorldSpaceId != spawnRequest.WorldSpaceId)
+            pActor = CreateCharacterForEntity(entity);
+            if (!pActor)
                 continue;
 
-            // TODO(cosideci): IsDragon probably shouldn't be straight up false here.
-            if (GridCellCoords::IsCellInGridCell(characterCoords, playerCoords, spawnRequest.IsDragon))
-            {
-                auto* pActor = Cast<Actor>(TESForm::GetById(remoteComponent.CachedRefId));
-                if (!pActor)
-                {
-                    pActor = CreateCharacterForEntity(entity);
-                    if (!pActor)
-                        continue;
-
-                    remoteComponent.CachedRefId = pActor->formID;
-                }
-
-                pActor->MoveTo(PlayerCharacter::Get()->parentCell, interpolationComponent.Position);
-            }
+            remoteComponent.CachedRefId = pActor->formID;
         }
+
+        pActor->MoveTo(pPlayer->parentCell, interpolationComponent.Position);
     }
 }
 
