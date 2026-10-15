@@ -631,6 +631,18 @@ void InventoryService::ApplyDroppedItem(const ObjectData& acData) noexcept
         const uint32_t expectedBaseId = m_world.GetModSystem().GetGameId(item.BaseId);
         if (pLocalReference && pLocalReference->IsTemporary() && pLocalReference->baseForm && pLocalReference->baseForm->formID == expectedBaseId)
         {
+            const auto existingDataIt = m_droppedServerData.find(acData.ServerId);
+            if (existingDataIt != m_droppedServerData.end() && existingDataIt->second != acData)
+            {
+                const uint32_t updatedFormId = SpawnDroppedItem(acData);
+                if (updatedFormId == 0)
+                    return;
+
+                RemoveDroppedItem(acData.ServerId, true);
+                TrackDroppedItem(acData, updatedFormId, false);
+                return;
+            }
+
             RemoveDroppedItem(acData.ServerId, false);
             TrackDroppedItem(acData, pLocalReference->formID, true);
             return;
