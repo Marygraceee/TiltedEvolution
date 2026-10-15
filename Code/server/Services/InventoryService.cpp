@@ -250,10 +250,9 @@ void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChan
         return;
     }
 
-    const CellIdComponent senderCell = message.HasDroppedObject && message.HasSenderCell
-                                           ? CellIdComponent{message.SenderCellId, message.SenderWorldSpaceId, message.SenderCurrentCoords}
-                                           : acMessage.pPlayer->GetCellComponent();
-    if (message.HasDroppedObject && message.HasSenderCell && !senderCell)
+    if (message.HasDroppedObject && message.HasSenderCell &&
+        ((message.SenderWorldSpaceId == GameId{} && message.SenderCellId == GameId{}) ||
+         (message.SenderWorldSpaceId != GameId{} && message.SenderCurrentCoords == GridCellCoords{})))
     {
         rejectDroppedItemDrop();
         return;
@@ -312,6 +311,9 @@ void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChan
             }
 
             CellIdComponent droppedCell{droppedObject.CellId, droppedObject.WorldSpaceId, droppedObject.CurrentCoords};
+            const CellIdComponent senderCell = message.HasDroppedObject && message.HasSenderCell
+                                                   ? CellIdComponent{message.SenderCellId, message.SenderWorldSpaceId, message.SenderCurrentCoords}
+                                                   : acMessage.pPlayer->GetCellComponent();
             if (!droppedCell.IsInRange(senderCell, false))
             {
                 rejectDroppedItemDrop();
