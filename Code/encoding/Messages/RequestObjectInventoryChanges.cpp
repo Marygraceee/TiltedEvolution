@@ -16,7 +16,7 @@ void RequestObjectInventoryChanges::DeserializeRaw(TiltedPhoques::Buffer::Reader
 {
     ClientMessage::DeserializeRaw(aReader);
 
-    auto count = Serialization::ReadVarInt(aReader) & 0xFF;
+    auto count = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
 
     for (auto i = 0u; i < count; ++i)
     {

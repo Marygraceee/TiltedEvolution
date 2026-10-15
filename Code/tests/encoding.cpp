@@ -19,6 +19,8 @@
 #include <Messages/ServerMessageFactory.h>
 #include <Messages/AssignObjectsResponse.h>
 #include <Messages/AssignObjectsRequest.h>
+#include <Messages/RequestObjectInventoryChanges.h>
+#include <Messages/NotifyObjectInventoryChanges.h>
 #include <Messages/CharacterSpawnRequest.h>
 #include <Messages/DrawWeaponRequest.h>
 #include <Messages/NotifyDrawWeapon.h>
@@ -642,6 +644,50 @@ TEST_CASE("Dropped item assignment encoding", "[encoding.dropped_item]")
     auto notifyMessage = factory.Extract(notifyReader);
     REQUIRE(notifyMessage);
     auto decodedNotify = CastUnique<NotifyInventoryChanges>(std::move(notifyMessage));
+    REQUIRE(*decodedNotify == notify);
+}
+
+TEST_CASE("Object inventory changes preserve counts above 255", "[encoding.object_inventory]")
+{
+    RequestObjectInventoryChanges request{};
+    NotifyObjectInventoryChanges notify{};
+    for (uint32_t index = 0; index < 256; ++index)
+    {
+        const GameId id{1, index + 1};
+        ObjectData object{};
+        object.Id = id;
+        request.Changes.emplace(id, object);
+
+        Inventory inventory{};
+        Inventory::Entry item{};
+        item.BaseId = id;
+        item.Count = 1;
+        inventory.Entries.push_back(item);
+        notify.Changes.emplace(id, inventory);
+    }
+
+    Buffer requestBuffer(1 << 20);
+    Buffer::Writer requestWriter(&requestBuffer);
+    request.Serialize(requestWriter);
+
+    Buffer::Reader requestReader(&requestBuffer);
+    const ClientMessageFactory clientFactory;
+    auto requestMessage = clientFactory.Extract(requestReader);
+    REQUIRE(requestMessage);
+    auto decodedRequest = CastUnique<RequestObjectInventoryChanges>(std::move(requestMessage));
+    REQUIRE(decodedRequest->Changes.size() == 256);
+    REQUIRE(*decodedRequest == request);
+
+    Buffer notifyBuffer(1 << 20);
+    Buffer::Writer notifyWriter(&notifyBuffer);
+    notify.Serialize(notifyWriter);
+
+    Buffer::Reader notifyReader(&notifyBuffer);
+    const ServerMessageFactory serverFactory;
+    auto notifyMessage = serverFactory.Extract(notifyReader);
+    REQUIRE(notifyMessage);
+    auto decodedNotify = CastUnique<NotifyObjectInventoryChanges>(std::move(notifyMessage));
+    REQUIRE(decodedNotify->Changes.size() == 256);
     REQUIRE(*decodedNotify == notify);
 }
 
