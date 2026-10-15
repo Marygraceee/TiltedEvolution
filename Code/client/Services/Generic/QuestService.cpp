@@ -394,6 +394,9 @@ void QuestService::OnPartyInfo(const NotifyPartyInfo& acPartyInfo) noexcept
             auto& questEntry = request.QuestContent.Entries.back();
             for (const auto& objective : pQuest->objectives)
             {
+                if (!objective)
+                    continue;
+
                 uint8_t flags = 0;
                 if (isObjectiveDisplayed(pQuest, objective->stageId))
                     flags |= QuestLog::ObjectiveDisplayed;
