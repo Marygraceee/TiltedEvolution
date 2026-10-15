@@ -81,6 +81,8 @@ TEST_CASE("Health change messages preserve ownership epochs", "[encoding.health_
     request.Id = 11;
     request.OwnershipEpoch = 271;
     request.DeltaHealth = -17.5f;
+    request.HasCurrentHealth = true;
+    request.CurrentHealth = 42.25f;
 
     Buffer requestBuffer(1000);
     Buffer::Writer requestWriter(&requestBuffer);
@@ -92,6 +94,21 @@ TEST_CASE("Health change messages preserve ownership epochs", "[encoding.health_
     REQUIRE(requestMessage);
     auto decodedRequest = CastUnique<RequestHealthChangeBroadcast>(std::move(requestMessage));
     REQUIRE(*decodedRequest == request);
+
+    RequestHealthChangeBroadcast deltaOnlyRequest{};
+    deltaOnlyRequest.Id = request.Id;
+    deltaOnlyRequest.OwnershipEpoch = request.OwnershipEpoch;
+    deltaOnlyRequest.DeltaHealth = 0.5f;
+
+    Buffer deltaOnlyBuffer(1000);
+    Buffer::Writer deltaOnlyWriter(&deltaOnlyBuffer);
+    deltaOnlyRequest.Serialize(deltaOnlyWriter);
+
+    Buffer::Reader deltaOnlyReader(&deltaOnlyBuffer);
+    auto deltaOnlyMessage = clientFactory.Extract(deltaOnlyReader);
+    REQUIRE(deltaOnlyMessage);
+    auto decodedDeltaOnlyRequest = CastUnique<RequestHealthChangeBroadcast>(std::move(deltaOnlyMessage));
+    REQUIRE(*decodedDeltaOnlyRequest == deltaOnlyRequest);
 
     NotifyHealthChangeBroadcast notify{};
     notify.Id = request.Id;

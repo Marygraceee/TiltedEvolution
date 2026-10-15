@@ -27,6 +27,25 @@
 
 static_assert(ActorValues::kValueCount == ActorValueInfo::kActorValueCount);
 
+static void SetCurrentHealth(RequestHealthChangeBroadcast& aRequest, World& aWorld, const entt::entity aEntity) noexcept
+{
+    const auto* pLocalComponent = aWorld.try_get<LocalComponent>(aEntity);
+    const auto* pFormIdComponent = aWorld.try_get<FormIdComponent>(aEntity);
+    if (!pLocalComponent || !pFormIdComponent || pLocalComponent->Id != aRequest.Id || pLocalComponent->OwnershipEpoch != aRequest.OwnershipEpoch)
+        return;
+
+    Actor* pActor = Cast<Actor>(TESForm::GetById(pFormIdComponent->Id));
+    if (!pActor)
+        return;
+
+    const float currentHealth = pActor->GetActorValue(ActorValueInfo::kHealth);
+    if (!ActorValues::IsValidValue(ActorValueInfo::kHealth, currentHealth))
+        return;
+
+    aRequest.HasCurrentHealth = true;
+    aRequest.CurrentHealth = currentHealth;
+}
+
 ActorValueService::ActorValueService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept
     : m_world(aWorld)
     , m_dispatcher(aDispatcher)
@@ -234,6 +253,8 @@ void ActorValueService::OnHealthChange(const HealthChangeEvent& acEvent) noexcep
     requestHealthChange.Id = serverId;
     requestHealthChange.OwnershipEpoch = ownershipEpoch;
     requestHealthChange.DeltaHealth = acEvent.DeltaHealth;
+    if (pLocalComponent)
+        SetCurrentHealth(requestHealthChange, m_world, *hitteeIt);
 
     const auto pendingIt = m_smallHealthChanges.find(serverId);
     if (pendingIt != m_smallHealthChanges.end())
@@ -268,6 +289,9 @@ void ActorValueService::RunSmallHealthUpdates() noexcept
             requestHealthChange.Id = value.first;
             requestHealthChange.OwnershipEpoch = value.second.OwnershipEpoch;
             requestHealthChange.DeltaHealth = value.second.DeltaHealth;
+            const auto entity = Utils::FindEntityByServerId(value.first);
+            if (entity)
+                SetCurrentHealth(requestHealthChange, m_world, *entity);
 
             m_transport.Send(requestHealthChange);
 

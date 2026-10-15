@@ -111,7 +111,10 @@ void ActorValueService::OnHealthChangeBroadcast(const PacketEvent<RequestHealthC
 
     auto& actorValuesComponent = actorValuesView.get<ActorValuesComponent>(*it);
     const auto currentHealth = actorValuesComponent.CurrentActorValues.ActorValuesList[24];
-    const auto updatedHealth = currentHealth + message.DeltaHealth;
+    const bool isCurrentOwner = ownerComponent.IsCurrentOwner(acMessage.pPlayer, message.OwnershipEpoch);
+    const auto updatedHealth = isCurrentOwner && message.HasCurrentHealth ? message.CurrentHealth : currentHealth + message.DeltaHealth;
+    if (isCurrentOwner && message.HasCurrentHealth && !ActorValues::IsValidValue(24, message.CurrentHealth))
+        return;
     if (!std::isfinite(updatedHealth))
         return;
 

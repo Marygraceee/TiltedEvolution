@@ -16,10 +16,13 @@ struct RequestHealthChangeBroadcast final : ClientMessage
 
     bool operator==(const RequestHealthChangeBroadcast& acRhs) const noexcept
     {
-        return Id == acRhs.Id && OwnershipEpoch == acRhs.OwnershipEpoch && DeltaHealth == acRhs.DeltaHealth && GetOpcode() == acRhs.GetOpcode();
+        return Id == acRhs.Id && OwnershipEpoch == acRhs.OwnershipEpoch && DeltaHealth == acRhs.DeltaHealth && HasCurrentHealth == acRhs.HasCurrentHealth &&
+               CurrentHealth == acRhs.CurrentHealth && GetOpcode() == acRhs.GetOpcode();
     }
 
     uint32_t Id;
     uint32_t OwnershipEpoch{};
     float DeltaHealth;
+    bool HasCurrentHealth{};
+    float CurrentHealth{};
 };
