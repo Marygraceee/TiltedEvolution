@@ -92,7 +92,19 @@ struct CharacterService
     void ProcessNewEntity(entt::entity aEntity) const noexcept;
 
 private:
-    bool MoveActor(const Actor* apActor, const GameId& acWorldSpaceId, const GameId& acCellId, const glm::vec3& acPosition) const noexcept;
+    struct PendingActorMove
+    {
+        GameId WorldSpaceId{};
+        GameId CellId{};
+        glm::vec3 Position{};
+        uint32_t ServerId{};
+        uint32_t OwnershipEpoch{};
+        uint64_t LatestTick{};
+    };
+
+    bool MoveActor(const Actor* apActor, const GameId& acWorldSpaceId, const GameId& acCellId, const glm::vec3& acPosition, bool aLogCellFailure = true) const noexcept;
+    void QueuePendingActorMove(uint32_t aFormId, const GameId& acWorldSpaceId, const GameId& acCellId, const glm::vec3& acPosition) const noexcept;
+    void RunPendingActorMoves() noexcept;
 
     void RequestServerAssignment(entt::entity aEntity) const noexcept;
     void CancelServerAssignment(entt::entity aEntity, uint32_t aFormId) const noexcept;
@@ -136,6 +148,7 @@ private:
 
     mutable Set<entt::entity> m_pendingCellAssignments{};
     mutable Map<uint32_t, CharacterSpawnRequest> m_pendingCharacterSpawns{};
+    mutable Map<uint32_t, PendingActorMove> m_pendingActorMoves{};
 
     // Actor form ID -> pick form ID. The active stage lives in ActorExtension.
     // Written from const message handlers, drained by ProcessLeveledConforms.

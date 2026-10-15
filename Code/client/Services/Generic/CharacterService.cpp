@@ -302,6 +302,8 @@ void CharacterService::OnActorAdded(const ActorAddedEvent& acEvent) noexcept
 
 void CharacterService::OnActorRemoved(const ActorRemovedEvent& acEvent) noexcept
 {
+    m_pendingActorMoves.erase(acEvent.FormId);
+
     if (auto* pActor = Cast<Actor>(TESForm::GetById(acEvent.FormId)))
         pActor->GetExtension()->Reconciliation = ActorExtension::ReconciliationStage::None;
 
@@ -350,6 +352,7 @@ void CharacterService::OnUpdate(const UpdateEvent& acUpdateEvent) noexcept
     RunLocalUpdates();
     RunFactionsUpdates();
     RunRemoteUpdates();
+    RunPendingActorMoves();
     RunExperienceUpdates();
     ApplyCachedWeaponDraws(acUpdateEvent);
     ProcessLeveledConforms();
@@ -358,6 +361,7 @@ void CharacterService::OnUpdate(const UpdateEvent& acUpdateEvent) noexcept
 void CharacterService::OnConnected(const ConnectedEvent& acConnectedEvent) const noexcept
 {
     m_pendingCharacterSpawns.clear();
+    m_pendingActorMoves.clear();
 
     // Go through all the forms that were previously detected
     auto view = m_world.view<FormIdComponent>(entt::exclude<ObjectComponent>);
@@ -383,6 +387,7 @@ void CharacterService::OnConnected(const ConnectedEvent& acConnectedEvent) const
 void CharacterService::OnDisconnected(const DisconnectedEvent& acDisconnectedEvent) noexcept
 {
     m_pendingCharacterSpawns.clear();
+    m_pendingActorMoves.clear();
 
     auto remoteView = m_world.view<RemoteComponent>();
     for (auto entity : remoteView)
@@ -549,7 +554,8 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
 
         ReconcileActorData(cEntity, pActor, acMessage.OwnershipEpoch, actorData, true, false);
 
-        MoveActor(pActor, acMessage.WorldSpaceId, acMessage.CellId, acMessage.Position);
+        if (!MoveActor(pActor, acMessage.WorldSpaceId, acMessage.CellId, acMessage.Position))
+            QueuePendingActorMove(pActor->formID, acMessage.WorldSpaceId, acMessage.CellId, acMessage.Position);
 
         // The owner's leveled pick rides the assignment response for actors we discovered ourselves
         ApplyLeveledNpcPick(pActor, acMessage.LeveledNpcPickId);
@@ -728,6 +734,8 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
     AnimationSystem::Setup(m_world, *entity);
 
     m_world.emplace_or_replace<WaitingFor3D>(*entity, acMessage, !movedToCell);
+    if (!movedToCell)
+        QueuePendingActorMove(pActor->formID, acMessage.WorldSpaceId, acMessage.CellId, acMessage.Position);
 
     auto& remoteAnimationComponent = m_world.get<RemoteAnimationComponent>(*entity);
 
@@ -758,6 +766,30 @@ void CharacterService::OnReferencesMoveRequest(const ServerReferencesMoveRequest
             continue;
 
         auto& interpolationComponent = view.get<InterpolationComponent>(*itor);
+        uint32_t formId = remoteComponent.CachedRefId;
+        if (const auto* pFormIdComponent = m_world.try_get<FormIdComponent>(*itor))
+            formId = pFormIdComponent->Id;
+
+        const uint64_t latestTick = interpolationComponent.TimePoints.empty() ? 0 : interpolationComponent.TimePoints.back().Tick;
+        if (acMessage.Tick > latestTick)
+        {
+            if (auto* pWaitingFor3D = m_world.try_get<WaitingFor3D>(*itor))
+            {
+                pWaitingFor3D->SpawnRequest.WorldSpaceId = movement.WorldSpaceId;
+                pWaitingFor3D->SpawnRequest.CellId = movement.CellId;
+            }
+        }
+
+        auto pendingMoveIt = m_pendingActorMoves.find(formId);
+        if (pendingMoveIt != m_pendingActorMoves.end() && pendingMoveIt->second.ServerId == serverId && pendingMoveIt->second.OwnershipEpoch == movement.OwnershipEpoch &&
+            acMessage.Tick > pendingMoveIt->second.LatestTick)
+        {
+            auto& pendingMove = m_pendingActorMoves[formId];
+            pendingMove.WorldSpaceId = movement.WorldSpaceId;
+            pendingMove.CellId = movement.CellId;
+            pendingMove.Position = movement.Position;
+            pendingMove.LatestTick = acMessage.Tick;
+        }
 
         InterpolationComponent::TimePoint point;
         point.Tick = acMessage.Tick;
@@ -917,6 +949,24 @@ void CharacterService::OnOwnershipTransfer(const NotifyOwnershipTransfer& acMess
         return;
     }
 
+    if (entity)
+    {
+        uint32_t formId = 0;
+        if (const auto* pFormIdComponent = m_world.try_get<FormIdComponent>(*entity))
+            formId = pFormIdComponent->Id;
+        else if (const auto* pRemoteComponent = m_world.try_get<RemoteComponent>(*entity))
+            formId = pRemoteComponent->CachedRefId;
+
+        auto pendingMoveIt = m_pendingActorMoves.find(formId);
+        if (pendingMoveIt != m_pendingActorMoves.end())
+        {
+            auto& pendingMove = m_pendingActorMoves[formId];
+            pendingMove.ServerId = acMessage.ServerId;
+            pendingMove.OwnershipEpoch = acMessage.OwnershipEpoch;
+            pendingMove.LatestTick = 0;
+        }
+    }
+
     const bool isLocalOwner = acMessage.OwnerPlayerId == m_transport.GetLocalPlayerId();
     if (!entity)
     {
@@ -1012,6 +1062,14 @@ void CharacterService::OnOwnershipTransfer(const NotifyOwnershipTransfer& acMess
 void CharacterService::OnRemoveCharacter(const NotifyRemoveCharacter& acMessage) const noexcept
 {
     m_pendingCharacterSpawns.erase(acMessage.ServerId);
+
+    for (auto it = m_pendingActorMoves.begin(); it != m_pendingActorMoves.end();)
+    {
+        if (it->second.ServerId == acMessage.ServerId)
+            it = m_pendingActorMoves.erase(it);
+        else
+            ++it;
+    }
 
     auto view = m_world.view<RemoteComponent>();
 
@@ -1373,9 +1431,14 @@ void CharacterService::OnNotifyActorTeleport(const NotifyActorTeleport& acMessag
         return;
     }
 
-    MoveActor(pActor, acMessage.WorldSpaceId, acMessage.CellId, acMessage.Position);
-
-    spdlog::info("Successfully teleported actor, form id: {:X}, world space: {:X}, cell: {:X}, position: ({}, {}, {})", pActor->formID, acMessage.WorldSpaceId.BaseId, acMessage.CellId.BaseId, acMessage.Position.x, acMessage.Position.y, acMessage.Position.z);
+    if (MoveActor(pActor, acMessage.WorldSpaceId, acMessage.CellId, acMessage.Position))
+    {
+        spdlog::info(
+            "Successfully teleported actor, form id: {:X}, world space: {:X}, cell: {:X}, position: ({}, {}, {})", pActor->formID, acMessage.WorldSpaceId.BaseId,
+            acMessage.CellId.BaseId, acMessage.Position.x, acMessage.Position.y, acMessage.Position.z);
+    }
+    else
+        QueuePendingActorMove(pActor->formID, acMessage.WorldSpaceId, acMessage.CellId, acMessage.Position);
 }
 
 void CharacterService::OnPartyJoinedEvent(const PartyJoinedEvent& acEvent) noexcept
@@ -1391,7 +1454,7 @@ void CharacterService::OnPartyJoinedEvent(const PartyJoinedEvent& acEvent) noexc
     }
 }
 
-bool CharacterService::MoveActor(const Actor* apActor, const GameId& acWorldSpaceId, const GameId& acCellId, const glm::vec3& acPosition) const noexcept
+bool CharacterService::MoveActor(const Actor* apActor, const GameId& acWorldSpaceId, const GameId& acCellId, const glm::vec3& acPosition, const bool aLogCellFailure) const noexcept
 {
     TESObjectCELL* pCell = nullptr;
     if (!acWorldSpaceId)
@@ -1413,12 +1476,96 @@ bool CharacterService::MoveActor(const Actor* apActor, const GameId& acWorldSpac
 
     if (!pCell)
     {
-        spdlog::error(__FUNCTION__ ": failed to fetch cell to teleport, actor: {:X}, worldspace: {:X}, cell: {:X}, position: {}, {}, {}", apActor->formID, acWorldSpaceId.BaseId, acCellId.BaseId, acPosition.x, acPosition.y, acPosition.z);
+        if (aLogCellFailure)
+            spdlog::error(
+                __FUNCTION__ ": failed to fetch cell to teleport, actor: {:X}, worldspace: {:X}, cell: {:X}, position: {}, {}, {}", apActor->formID, acWorldSpaceId.BaseId,
+                acCellId.BaseId, acPosition.x, acPosition.y, acPosition.z);
         return false;
     }
 
     apActor->MoveTo(pCell, acPosition);
+    const bool hadPendingMove = m_pendingActorMoves.erase(apActor->formID) != 0;
+    if (hadPendingMove)
+    {
+        auto waitingView = m_world.view<RemoteComponent, WaitingFor3D>();
+        for (const entt::entity entity : waitingView)
+        {
+            if (waitingView.get<RemoteComponent>(entity).CachedRefId != apActor->formID)
+                continue;
+
+            auto& waitingFor3D = waitingView.get<WaitingFor3D>(entity);
+            waitingFor3D.NeedsCellMove = false;
+            waitingFor3D.SpawnRequest.WorldSpaceId = acWorldSpaceId;
+            waitingFor3D.SpawnRequest.CellId = acCellId;
+        }
+    }
+
     return true;
+}
+
+void CharacterService::QueuePendingActorMove(const uint32_t aFormId, const GameId& acWorldSpaceId, const GameId& acCellId, const glm::vec3& acPosition) const noexcept
+{
+    PendingActorMove pendingMove{};
+    pendingMove.WorldSpaceId = acWorldSpaceId;
+    pendingMove.CellId = acCellId;
+    pendingMove.Position = acPosition;
+
+    auto view = m_world.view<RemoteComponent>();
+    for (const entt::entity entity : view)
+    {
+        const auto& remoteComponent = view.get<RemoteComponent>(entity);
+        uint32_t formId = remoteComponent.CachedRefId;
+        if (const auto* pFormIdComponent = m_world.try_get<FormIdComponent>(entity))
+            formId = pFormIdComponent->Id;
+        if (formId != aFormId)
+            continue;
+
+        pendingMove.ServerId = remoteComponent.Id;
+        pendingMove.OwnershipEpoch = remoteComponent.OwnershipEpoch;
+        if (const auto* pInterpolationComponent = m_world.try_get<InterpolationComponent>(entity); pInterpolationComponent && !pInterpolationComponent->TimePoints.empty())
+            pendingMove.LatestTick = pInterpolationComponent->TimePoints.back().Tick;
+        break;
+    }
+
+    m_pendingActorMoves.insert_or_assign(aFormId, pendingMove);
+}
+
+void CharacterService::RunPendingActorMoves() noexcept
+{
+    if (m_pendingActorMoves.empty())
+        return;
+
+    static std::chrono::steady_clock::time_point lastRetryTime{};
+    const auto now = std::chrono::steady_clock::now();
+    if (now - lastRetryTime < 250ms)
+        return;
+
+    lastRetryTime = now;
+    PlayerCharacter* pPlayer = PlayerCharacter::Get();
+    if (!pPlayer)
+        return;
+
+    Vector<uint32_t> pendingFormIds;
+    pendingFormIds.reserve(m_pendingActorMoves.size());
+    for (const auto& pendingMove : m_pendingActorMoves)
+        pendingFormIds.push_back(pendingMove.first);
+
+    for (const uint32_t formId : pendingFormIds)
+    {
+        const auto pendingMoveIt = m_pendingActorMoves.find(formId);
+        if (pendingMoveIt == m_pendingActorMoves.end())
+            continue;
+
+        auto* pActor = Cast<Actor>(TESForm::GetById(formId));
+        if (!pActor)
+            continue;
+
+        const auto pendingMove = pendingMoveIt->second;
+        if (!IsSpawnWithinLoadedArea(m_world, *pPlayer, pendingMove.CellId, pendingMove.WorldSpaceId, pendingMove.Position.x, pendingMove.Position.y, pActor->IsDragon()))
+            continue;
+
+        MoveActor(pActor, pendingMove.WorldSpaceId, pendingMove.CellId, pendingMove.Position, false);
+    }
 }
 
 void CharacterService::ProcessNewEntity(entt::entity aEntity) const noexcept
@@ -2176,6 +2323,9 @@ void CharacterService::RunSpawnUpdates() const noexcept
         auto& remoteComponent = m_world.get<RemoteComponent>(entity);
         auto& interpolationComponent = m_world.get<InterpolationComponent>(entity);
         auto& waitingFor3D = invisibleView.get<WaitingFor3D>(entity);
+        if (waitingFor3D.NeedsCellMove)
+            continue;
+
         const auto& spawnRequest = waitingFor3D.SpawnRequest;
         // TODO(cosideci): IsDragon probably shouldn't be straight up false here.
         if (!IsSpawnWithinLoadedArea(
@@ -2193,27 +2343,8 @@ void CharacterService::RunSpawnUpdates() const noexcept
         }
 
         waitingFor3D.NeedsCellMove = !MoveActor(pActor, spawnRequest.WorldSpaceId, spawnRequest.CellId, interpolationComponent.Position);
-    }
-
-    auto identifiedView = m_world.view<FormIdComponent, RemoteComponent, InterpolationComponent, RemoteAnimationComponent, WaitingFor3D>();
-    Vector<entt::entity> identifiedEntities(identifiedView.begin(), identifiedView.end());
-    for (const entt::entity entity : identifiedEntities)
-    {
-        auto& waitingFor3D = identifiedView.get<WaitingFor3D>(entity);
-        if (!waitingFor3D.NeedsCellMove)
-            continue;
-
-        const auto& interpolationComponent = identifiedView.get<InterpolationComponent>(entity);
-        const auto& spawnRequest = waitingFor3D.SpawnRequest;
-        if (!IsSpawnWithinLoadedArea(
-                m_world, *pPlayer, spawnRequest.CellId, spawnRequest.WorldSpaceId, interpolationComponent.Position.x, interpolationComponent.Position.y, spawnRequest.IsDragon))
-            continue;
-
-        auto* pActor = Cast<Actor>(TESForm::GetById(identifiedView.get<FormIdComponent>(entity).Id));
-        if (!pActor)
-            continue;
-
-        waitingFor3D.NeedsCellMove = !MoveActor(pActor, spawnRequest.WorldSpaceId, spawnRequest.CellId, interpolationComponent.Position);
+        if (waitingFor3D.NeedsCellMove)
+            QueuePendingActorMove(pActor->formID, spawnRequest.WorldSpaceId, spawnRequest.CellId, interpolationComponent.Position);
     }
 }
 
