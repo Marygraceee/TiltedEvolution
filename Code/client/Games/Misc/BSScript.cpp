@@ -96,7 +96,7 @@ static void QueueObjectiveUpdate(const TESQuest* apQuest, const int32_t aObjecti
                 for (const auto& objective : pQuest->objectives)
                 {
                     if (objective)
-                        sendObjective(objective->stageId);
+                        sendObjective(objective->index);
                 }
             }
             else

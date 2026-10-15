@@ -64,11 +64,12 @@ struct TESQuest : BGSStoryManagerTreeForm
         BSFixedString nameRef; // 0x0000
         TESQuest* parent;      // 0x0008
         char pad10[12];        // 0x0010
-        uint16_t stageId;
+        uint16_t index;
         uint8_t pad30;
         uint8_t state;
     };
 
+    static_assert(offsetof(Objective, index) == 28);
     static_assert(offsetof(Objective, state) == 31);
 
     struct Stage

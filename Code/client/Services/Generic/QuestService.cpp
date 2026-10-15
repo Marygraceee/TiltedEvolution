@@ -84,16 +84,16 @@ static void SendObjectiveStateUpdates(World& aWorld, TESQuest* apQuest, const Ga
             continue;
 
         uint8_t flags = 0;
-        if (isObjectiveDisplayed(apQuest, objective->stageId))
+        if (isObjectiveDisplayed(apQuest, objective->index))
             flags |= QuestLog::ObjectiveDisplayed;
-        if (isObjectiveCompleted(apQuest, objective->stageId))
+        if (isObjectiveCompleted(apQuest, objective->index))
             flags |= QuestLog::ObjectiveCompleted;
-        if (isObjectiveFailed(apQuest, objective->stageId))
+        if (isObjectiveFailed(apQuest, objective->index))
             flags |= QuestLog::ObjectiveFailed;
 
         RequestQuestUpdate update{};
         update.Id = aQuestId;
-        update.Stage = objective->stageId;
+        update.Stage = objective->index;
         update.Status = RequestQuestUpdate::ObjectiveUpdate;
         update.ClientQuestType = flags;
         aWorld.GetTransport().Send(update);
@@ -398,13 +398,13 @@ void QuestService::OnPartyInfo(const NotifyPartyInfo& acPartyInfo) noexcept
                     continue;
 
                 uint8_t flags = 0;
-                if (isObjectiveDisplayed(pQuest, objective->stageId))
+                if (isObjectiveDisplayed(pQuest, objective->index))
                     flags |= QuestLog::ObjectiveDisplayed;
-                if (isObjectiveCompleted(pQuest, objective->stageId))
+                if (isObjectiveCompleted(pQuest, objective->index))
                     flags |= QuestLog::ObjectiveCompleted;
-                if (isObjectiveFailed(pQuest, objective->stageId))
+                if (isObjectiveFailed(pQuest, objective->index))
                     flags |= QuestLog::ObjectiveFailed;
-                questEntry.Objectives.push_back({objective->stageId, flags});
+                questEntry.Objectives.push_back({objective->index, flags});
             }
         }
         else
