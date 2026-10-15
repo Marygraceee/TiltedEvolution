@@ -8,6 +8,13 @@ void RequestInventoryChanges::SerializeRaw(TiltedPhoques::Buffer::Writer& aWrite
     Item.Serialize(aWriter);
     Serialization::WriteVarInt(aWriter, DropId);
     Serialization::WriteVarInt(aWriter, ReferenceFormId);
+    Serialization::WriteBool(aWriter, HasSenderCell);
+    if (HasSenderCell)
+    {
+        SenderCellId.Serialize(aWriter);
+        SenderWorldSpaceId.Serialize(aWriter);
+        SenderCurrentCoords.Serialize(aWriter);
+    }
     Serialization::WriteBool(aWriter, HasDroppedObject);
     if (HasDroppedObject)
         DroppedObject.Serialize(aWriter);
@@ -24,6 +31,13 @@ void RequestInventoryChanges::DeserializeRaw(TiltedPhoques::Buffer::Reader& aRea
     Item.Deserialize(aReader);
     DropId = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
     ReferenceFormId = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
+    HasSenderCell = Serialization::ReadBool(aReader);
+    if (HasSenderCell)
+    {
+        SenderCellId.Deserialize(aReader);
+        SenderWorldSpaceId.Deserialize(aReader);
+        SenderCurrentCoords.Deserialize(aReader);
+    }
     HasDroppedObject = Serialization::ReadBool(aReader);
     if (HasDroppedObject)
         DroppedObject.Deserialize(aReader);

@@ -607,6 +607,10 @@ TEST_CASE("Dropped item assignment encoding", "[encoding.dropped_item]")
     request.Item = item;
     request.Item.Count = -item.Count;
     request.ReferenceFormId = droppedItem.LocalReferenceId;
+    request.SenderCellId = GameId{1, 0x2222};
+    request.SenderWorldSpaceId = GameId{2, 0x3333};
+    request.SenderCurrentCoords = GridCellCoords{12, -7};
+    request.HasSenderCell = true;
     request.DroppedObject = droppedItem;
     request.HasDroppedObject = true;
     request.Drop = true;

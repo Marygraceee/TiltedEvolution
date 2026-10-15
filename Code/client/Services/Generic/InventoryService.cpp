@@ -145,6 +145,23 @@ void InventoryService::OnInventoryChangeEvent(const InventoryChangeEvent& acEven
         }
     }
 
+    if (request.HasDroppedObject)
+    {
+        PlayerCharacter* pPlayer = PlayerCharacter::Get();
+        TESObjectCELL* pCell = pPlayer ? pPlayer->GetParentCellEx() : nullptr;
+        if (pPlayer && pCell && m_world.GetModSystem().GetServerModId(pCell->formID, request.SenderCellId))
+        {
+            request.SenderCurrentCoords = GridCellCoords::CalculateGridCellCoords(pPlayer->position.x, pPlayer->position.y);
+            if (TESWorldSpace* pWorldSpace = pPlayer->GetWorldSpace())
+            {
+                if (m_world.GetModSystem().GetServerModId(pWorldSpace->formID, request.SenderWorldSpaceId))
+                    request.HasSenderCell = true;
+            }
+            else
+                request.HasSenderCell = true;
+        }
+    }
+
     m_transport.Send(request);
 
     spdlog::info("Sending item request, item: {:X}, count: {}, target object: {:X}", acEvent.Item.BaseId.BaseId, acEvent.Item.Count, acEvent.FormId);
