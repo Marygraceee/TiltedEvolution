@@ -317,6 +317,7 @@ void CharacterService::OnActorRemoved(const ActorRemovedEvent& acEvent) noexcept
     }
 
     const auto cId = *entityIt;
+    m_pendingCellAssignments.erase(cId);
 
     auto& formIdComponent = view.get<FormIdComponent>(cId);
     CancelServerAssignment(*entityIt, formIdComponent.Id);
@@ -406,6 +407,7 @@ void CharacterService::OnDisconnected(const DisconnectedEvent& acDisconnectedEve
     }
 
     m_pendingLeveledConforms.clear();
+    m_pendingCellAssignments.clear();
     m_weaponDrawUpdates.clear();
     m_cachedExperience = 0.f;
 }
@@ -1453,9 +1455,16 @@ void CharacterService::RequestServerAssignment(const entt::entity aEntity) const
         return;
     }
 
-    if (!m_world.GetModSystem().GetServerModId(pActor->parentCell->formID, message.CellId))
+    TESObjectCELL* pCell = pActor->parentCell;
+    if (!pCell)
     {
-        spdlog::error("Server cell id not found for cell id {:X}", pActor->parentCell->formID);
+        m_pendingCellAssignments.emplace(aEntity, true);
+        return;
+    }
+
+    if (!m_world.GetModSystem().GetServerModId(pCell->formID, message.CellId))
+    {
+        spdlog::error("Server cell id not found for cell id {:X}", pCell->formID);
         return;
     }
 
@@ -1919,6 +1928,17 @@ void CharacterService::RunLocalUpdates() const noexcept
 
     lastSnapshotTimePoint = now;
     const bool cIsFullSnapshot = ++snapshotCount % cLowPrioritySnapshotDivider == 0;
+
+    auto pendingCellAssignments = std::move(m_pendingCellAssignments);
+    m_pendingCellAssignments.clear();
+    for (const auto& pendingAssignment : pendingCellAssignments)
+    {
+        const entt::entity entity = pendingAssignment.first;
+        if (!m_world.valid(entity) || !m_world.all_of<FormIdComponent>(entity) || m_world.any_of<RemoteComponent, LocalComponent, WaitingForAssignmentComponent>(entity))
+            continue;
+
+        RequestServerAssignment(entity);
+    }
 
     RequestActionEvents actionsMessage;
 
