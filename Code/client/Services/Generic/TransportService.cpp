@@ -152,7 +152,8 @@ void TransportService::OnConnected()
     if (pPlayer->GetWorldSpace())
         modSystem.GetServerModId(pPlayer->GetWorldSpace()->formID, request.WorldSpaceId);
 
-    modSystem.GetServerModId(pPlayer->parentCell->formID, request.CellId);
+    if (TESObjectCELL* pCell = pPlayer->GetParentCellEx())
+        modSystem.GetServerModId(pCell->formID, request.CellId);
 
     request.Level = pPlayer->GetLevel();
 
