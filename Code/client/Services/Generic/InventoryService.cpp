@@ -318,7 +318,7 @@ void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& ac
         const bool pickedUpBeforeRejection = acMessage.ReferenceFormId != 0 && m_pendingLocalDropPickups.erase(acMessage.ReferenceFormId) != 0;
         const bool hadPendingDrop = acMessage.ReferenceFormId == 0 || m_pendingLocalDropForms.erase(acMessage.ReferenceFormId) != 0;
 
-        if (acMessage.ReferenceFormId != 0)
+        if (hadPendingDrop && acMessage.ReferenceFormId != 0)
         {
             ScopedReferencesOverride referencesOverride;
             TESObjectREFR* pDroppedReference = Cast<TESObjectREFR>(TESForm::GetById(acMessage.ReferenceFormId));
