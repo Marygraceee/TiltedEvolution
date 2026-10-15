@@ -844,8 +844,9 @@ TEST_CASE("Quest log updates replace duplicate entries", "[encoding.quest_log]")
     QuestLog questLog{};
     const GameId questId{2, 0x1234};
 
-    questLog.SetStage(questId, 20);
-    questLog.SetStage(questId, 45);
+    REQUIRE(questLog.SetStage(questId, 20));
+    REQUIRE_FALSE(questLog.SetStage(questId, 20));
+    REQUIRE(questLog.SetStage(questId, 45));
 
     REQUIRE(questLog.Entries.size() == 1);
     REQUIRE(questLog.Entries.front().Id == questId);

@@ -18,14 +18,17 @@ bool QuestLog::operator!=(const QuestLog& acRhs) const noexcept
     return !this->operator==(acRhs);
 }
 
-void QuestLog::SetStage(const GameId aId, const uint16_t aStage)
+bool QuestLog::SetStage(const GameId aId, const uint16_t aStage)
 {
     const auto questIt = std::find_if(Entries.begin(), Entries.end(), [aId](const auto& entry) { return entry.Id == aId; });
+    if (questIt != Entries.end() && questIt->Stage == aStage)
+        return false;
     if (questIt == Entries.end() && Entries.size() >= std::numeric_limits<uint16_t>::max())
-        return;
+        return false;
 
     Remove(aId);
     Entries.push_back({aId, aStage});
+    return true;
 }
 
 void QuestLog::Remove(const GameId aId)

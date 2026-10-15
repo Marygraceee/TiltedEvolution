@@ -64,19 +64,32 @@ void QuestService::OnQuestChanges(const PacketEvent<RequestQuestUpdate>& acMessa
     {
         if (pParty->HasQuestSnapshot)
         {
-            hasQuest = std::find_if(pParty->QuestContent.Entries.begin(), pParty->QuestContent.Entries.end(), [&message](const auto& entry) { return entry.Id == message.Id; }) !=
-                       pParty->QuestContent.Entries.end();
+            const auto questIt =
+                std::find_if(pParty->QuestContent.Entries.begin(), pParty->QuestContent.Entries.end(), [&message](const auto& entry) { return entry.Id == message.Id; });
+            hasQuest = questIt != pParty->QuestContent.Entries.end();
+            if (message.Status != RequestQuestUpdate::Stopped && hasQuest && questIt->Stage == message.Stage)
+                return;
         }
         else
         {
             const auto pendingIt = pParty->PendingQuestUpdates.find(message.Id);
             hasQuest = pendingIt != pParty->PendingQuestUpdates.end() && pendingIt->second.Status != RequestQuestUpdate::Stopped;
+            if (pendingIt != pParty->PendingQuestUpdates.end())
+            {
+                if (message.Status == RequestQuestUpdate::Stopped && pendingIt->second.Status == RequestQuestUpdate::Stopped)
+                    return;
+                if (message.Status != RequestQuestUpdate::Stopped && hasQuest && pendingIt->second.Stage == message.Stage)
+                    return;
+            }
         }
     }
     else
     {
         const auto& entries = pPlayer->GetQuestLogComponent().QuestContent.Entries;
-        hasQuest = std::find_if(entries.begin(), entries.end(), [&message](const auto& entry) { return entry.Id == message.Id; }) != entries.end();
+        const auto questIt = std::find_if(entries.begin(), entries.end(), [&message](const auto& entry) { return entry.Id == message.Id; });
+        hasQuest = questIt != entries.end();
+        if (message.Status != RequestQuestUpdate::Stopped && hasQuest && questIt->Stage == message.Stage)
+            return;
     }
 
     if ((!pParty || pParty->HasQuestSnapshot) && message.Status != RequestQuestUpdate::Stopped && !hasQuest)

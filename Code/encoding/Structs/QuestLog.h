@@ -24,7 +24,7 @@ struct QuestLog
 
     bool operator==(const QuestLog& acRhs) const noexcept;
     bool operator!=(const QuestLog& acRhs) const noexcept;
-    void SetStage(GameId aId, uint16_t aStage);
+    bool SetStage(GameId aId, uint16_t aStage);
     void Remove(GameId aId);
 
     void Serialize(TiltedPhoques::Buffer::Writer& aWriter) const noexcept;
