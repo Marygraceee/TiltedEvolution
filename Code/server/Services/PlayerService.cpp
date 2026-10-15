@@ -20,20 +20,23 @@
 #include <Messages/NotifyPlayerLevel.h>
 #include <Messages/NotifyPlayerCellChanged.h>
 #include <Messages/AssignObjectsResponse.h>
+#include <algorithm>
 
 #include <Setting.h>
 namespace
 {
 Console::Setting fGoldLossFactor{"Gameplay:fGoldLossFactor", "How much of their gold players lose on death, from 0 to 1 (e.g. 0.05 loses 5%, 0 loses nothing)", 0.0f};
 
-void UpdateCharacterVisibility(World& aWorld, Player* apPlayer, const CellIdComponent& acPreviousCell, const CellIdComponent& acCurrentCell) noexcept
+void UpdateCharacterVisibility(
+    World& aWorld, Player* apPlayer, const CellIdComponent& acPreviousCell, const CellIdComponent& acCurrentCell, const ShiftGridCellRequest* apGridShift) noexcept
 {
+    const bool hasNewlyLoadedCells = apGridShift && !apGridShift->Cells.empty();
     if (acPreviousCell.IsInInteriorCell() && acCurrentCell.IsInInteriorCell())
     {
         if (acPreviousCell.Cell == acCurrentCell.Cell)
             return;
     }
-    else if (acPreviousCell.WorldSpaceId == acCurrentCell.WorldSpaceId && acPreviousCell.CenterCoords == acCurrentCell.CenterCoords)
+    else if (acPreviousCell.WorldSpaceId == acCurrentCell.WorldSpaceId && acPreviousCell.CenterCoords == acCurrentCell.CenterCoords && !hasNewlyLoadedCells)
         return;
 
     auto characterView = aWorld.view<CellIdComponent, CharacterComponent, OwnerComponent>();
@@ -48,7 +51,14 @@ void UpdateCharacterVisibility(World& aWorld, Player* apPlayer, const CellIdComp
         // Use the same worldspace/position range as movement broadcasts, including dragon range.
         const auto transition = CellIdComponent::GetRangeTransition(acPreviousCell, acCurrentCell, characterCell, characterComponent.IsDragon());
         if (transition == CellIdComponent::RangeTransition::None)
-            continue;
+        {
+            if (!hasNewlyLoadedCells || !acCurrentCell.IsInRange(characterCell, characterComponent.IsDragon()))
+                continue;
+
+            const auto cellIt = std::find(apGridShift->Cells.begin(), apGridShift->Cells.end(), characterCell.Cell);
+            if (cellIt == apGridShift->Cells.end())
+                continue;
+        }
 
         if (transition == CellIdComponent::RangeTransition::Left)
         {
@@ -125,7 +135,7 @@ void PlayerService::HandleGridCellShift(const PacketEvent<ShiftGridCellRequest>&
     }
 
     m_world.GetDispatcher().trigger(PlayerLeaveCellEvent(previousCell.Cell));
-    UpdateCharacterVisibility(m_world, pPlayer, previousCell, currentCell);
+    UpdateCharacterVisibility(m_world, pPlayer, previousCell, currentCell, &message);
 
     AssignObjectsResponse droppedItems{};
     droppedItems.CellId = currentCell.Cell;
@@ -153,7 +163,7 @@ void PlayerService::HandleExteriorCellEnter(const PacketEvent<EnterExteriorCellR
         if (previousCell)
             m_world.GetDispatcher().trigger(CharacterExteriorCellChangeEvent{pPlayer, entity, message.WorldSpaceId, message.CurrentCoords});
 
-        UpdateCharacterVisibility(m_world, pPlayer, previousCell, currentCell);
+        UpdateCharacterVisibility(m_world, pPlayer, previousCell, currentCell, nullptr);
         SendPlayerCellChanged(pPlayer);
     }
 }
@@ -178,7 +188,7 @@ void PlayerService::HandleInteriorCellEnter(const PacketEvent<EnterInteriorCellR
         }
     }
 
-    UpdateCharacterVisibility(m_world, pPlayer, previousCell, currentCell);
+    UpdateCharacterVisibility(m_world, pPlayer, previousCell, currentCell, nullptr);
     SendPlayerCellChanged(pPlayer);
 }
 
