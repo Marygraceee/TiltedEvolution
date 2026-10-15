@@ -2176,15 +2176,19 @@ void CharacterService::RunLocalUpdates() const noexcept
         if (!cIsFullSnapshot && pActor != pPlayer && !pActor->IsMount() && !pActor->IsInCombat())
             continue;
 
+        Movement movement{};
+        if (!AnimationSystem::SerializeMovement(m_world, pActor, movement))
+            continue;
+
+        movement.OwnershipEpoch = localComponent.OwnershipEpoch;
+
         if (movementMessage.Updates.size() == cMaxActorsPerMovementMessage)
         {
             m_transport.Send(movementMessage, TiltedPhoques::kUnreliable);
             movementMessage.Updates.clear();
         }
 
-        auto& movement = movementMessage.Updates[localComponent.Id];
-        AnimationSystem::SerializeMovement(m_world, pActor, movement);
-        movement.OwnershipEpoch = localComponent.OwnershipEpoch;
+        movementMessage.Updates[localComponent.Id] = std::move(movement);
     }
 
     if (!actionsMessage.Actions.empty())

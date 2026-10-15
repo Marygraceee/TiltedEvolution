@@ -109,13 +109,17 @@ void AnimationSystem::AddAction(RemoteAnimationComponent& aAnimationComponent, c
     aAnimationComponent.TimePoints.push_back(lastProcessedAction);
 }
 
-void AnimationSystem::SerializeMovement(World& aWorld, Actor* apActor, Movement& aMovement) noexcept
+bool AnimationSystem::SerializeMovement(World& aWorld, Actor* apActor, Movement& aMovement) noexcept
 {
-    if (const auto pCell = apActor->GetParentCellEx())
-        aWorld.GetModSystem().GetServerModId(pCell->formID, aMovement.CellId.ModId, aMovement.CellId.BaseId);
+    const auto pCell = apActor->GetParentCellEx();
+    if (!pCell || !aWorld.GetModSystem().GetServerModId(pCell->formID, aMovement.CellId.ModId, aMovement.CellId.BaseId))
+        return false;
 
     if (const auto pWorldSpace = apActor->GetWorldSpace())
-        aWorld.GetModSystem().GetServerModId(pWorldSpace->formID, aMovement.WorldSpaceId.ModId, aMovement.WorldSpaceId.BaseId);
+    {
+        if (!aWorld.GetModSystem().GetServerModId(pWorldSpace->formID, aMovement.WorldSpaceId.ModId, aMovement.WorldSpaceId.BaseId))
+            return false;
+    }
 
     aMovement.Position = apActor->position;
 
@@ -128,6 +132,8 @@ void AnimationSystem::SerializeMovement(World& aWorld, Actor* apActor, Movement&
     {
         aMovement.Direction = apActor->currentProcess->middleProcess->direction;
     }
+
+    return true;
 }
 
 void AnimationSystem::SerializeActions(RequestActionEvents& aMessage, LocalComponent& localComponent, LocalAnimationComponent& animationComponent) noexcept

@@ -53,7 +53,7 @@ struct AnimationSystem
      * @param apActor The local actor.
      * @param aMovement The output movement snapshot.
      */
-    static void SerializeMovement(World& aWorld, Actor* apActor, Movement& aMovement) noexcept;
+    static bool SerializeMovement(World& aWorld, Actor* apActor, Movement& aMovement) noexcept;
     /**
      * @brief Moves the actions a local actor performed since the last call into the message to-be-sent.
      * @param aMessage The output message.
