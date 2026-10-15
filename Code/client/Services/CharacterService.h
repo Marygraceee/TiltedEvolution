@@ -97,13 +97,16 @@ private:
         GameId WorldSpaceId{};
         GameId CellId{};
         glm::vec3 Position{};
+        bool PreservePosition{};
         uint32_t ServerId{};
         uint32_t OwnershipEpoch{};
         uint64_t LatestTick{};
     };
 
-    bool MoveActor(const Actor* apActor, const GameId& acWorldSpaceId, const GameId& acCellId, const glm::vec3& acPosition, bool aLogCellFailure = true) const noexcept;
-    void QueuePendingActorMove(uint32_t aFormId, const GameId& acWorldSpaceId, const GameId& acCellId, const glm::vec3& acPosition) const noexcept;
+    bool MoveActor(
+        const Actor* apActor, const GameId& acWorldSpaceId, const GameId& acCellId, const glm::vec3& acPosition, const glm::vec3& acActorPosition,
+        bool aLogCellFailure = true) const noexcept;
+    void QueuePendingActorMove(uint32_t aFormId, const GameId& acWorldSpaceId, const GameId& acCellId, const glm::vec3& acPosition, bool aPreservePosition = false) const noexcept;
     void RunPendingActorMoves() noexcept;
 
     void RequestServerAssignment(entt::entity aEntity) const noexcept;

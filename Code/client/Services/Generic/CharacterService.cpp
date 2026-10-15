@@ -554,7 +554,7 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
 
         ReconcileActorData(cEntity, pActor, acMessage.OwnershipEpoch, actorData, true, false);
 
-        if (!MoveActor(pActor, acMessage.WorldSpaceId, acMessage.CellId, acMessage.Position))
+        if (!MoveActor(pActor, acMessage.WorldSpaceId, acMessage.CellId, acMessage.Position, acMessage.Position))
             QueuePendingActorMove(pActor->formID, acMessage.WorldSpaceId, acMessage.CellId, acMessage.Position);
 
         // The owner's leveled pick rides the assignment response for actors we discovered ourselves
@@ -700,7 +700,7 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
 
     pActor->rotation.x = acMessage.Rotation.x;
     pActor->rotation.z = acMessage.Rotation.y;
-    const bool movedToCell = MoveActor(pActor, acMessage.WorldSpaceId, acMessage.CellId, acMessage.Position);
+    const bool movedToCell = MoveActor(pActor, acMessage.WorldSpaceId, acMessage.CellId, acMessage.Position, acMessage.Position);
     pActor->SetActorValues(acMessage.InitialActorValues);
 
     pActor->GetExtension()->SetPlayer(acMessage.IsPlayer);
@@ -771,7 +771,8 @@ void CharacterService::OnReferencesMoveRequest(const ServerReferencesMoveRequest
             formId = pFormIdComponent->Id;
 
         const uint64_t latestTick = interpolationComponent.TimePoints.empty() ? 0 : interpolationComponent.TimePoints.back().Tick;
-        if (acMessage.Tick > latestTick)
+        const bool isNewerMovement = acMessage.Tick > latestTick;
+        if (isNewerMovement)
         {
             if (auto* pWaitingFor3D = m_world.try_get<WaitingFor3D>(*itor))
             {
@@ -781,8 +782,9 @@ void CharacterService::OnReferencesMoveRequest(const ServerReferencesMoveRequest
         }
 
         auto pendingMoveIt = m_pendingActorMoves.find(formId);
-        if (pendingMoveIt != m_pendingActorMoves.end() && pendingMoveIt->second.ServerId == serverId && pendingMoveIt->second.OwnershipEpoch == movement.OwnershipEpoch &&
-            acMessage.Tick > pendingMoveIt->second.LatestTick)
+        const bool hasPendingMove =
+            pendingMoveIt != m_pendingActorMoves.end() && pendingMoveIt->second.ServerId == serverId && pendingMoveIt->second.OwnershipEpoch == movement.OwnershipEpoch;
+        if (hasPendingMove && acMessage.Tick > pendingMoveIt->second.LatestTick)
         {
             auto& pendingMove = m_pendingActorMoves[formId];
             pendingMove.WorldSpaceId = movement.WorldSpaceId;
@@ -799,6 +801,30 @@ void CharacterService::OnReferencesMoveRequest(const ServerReferencesMoveRequest
         point.Direction = movement.Direction;
 
         InterpolationSystem::AddPoint(interpolationComponent, std::move(point), cArrivalTime);
+
+        if (!isNewerMovement || hasPendingMove || m_world.all_of<WaitingFor3D>(*itor) || (!movement.CellId && !movement.WorldSpaceId))
+            continue;
+
+        Actor* pActor = Cast<Actor>(TESForm::GetById(formId));
+        if (!pActor)
+            continue;
+
+        const auto& modSystem = m_world.GetModSystem();
+        const auto* pCurrentCell = pActor->GetParentCellEx();
+        const auto* pCurrentWorldSpace = pActor->GetWorldSpace();
+
+        const uint32_t currentCellId = pCurrentCell ? pCurrentCell->formID : 0;
+        const uint32_t currentWorldSpaceId = pCurrentWorldSpace ? pCurrentWorldSpace->formID : 0;
+        const uint32_t targetCellId = modSystem.GetGameId(movement.CellId);
+        const uint32_t targetWorldSpaceId = modSystem.GetGameId(movement.WorldSpaceId);
+
+        const bool sameWorldSpace = movement.WorldSpaceId ? pCurrentWorldSpace && targetWorldSpaceId != 0 && currentWorldSpaceId == targetWorldSpaceId : !pCurrentWorldSpace;
+        const bool sameCell = !movement.CellId || (pCurrentCell && targetCellId != 0 && currentCellId == targetCellId);
+        if (pCurrentCell && sameWorldSpace && sameCell)
+            continue;
+
+        if (!MoveActor(pActor, movement.WorldSpaceId, movement.CellId, movement.Position, pActor->position, false))
+            QueuePendingActorMove(pActor->formID, movement.WorldSpaceId, movement.CellId, movement.Position, true);
     }
 }
 
@@ -1431,7 +1457,7 @@ void CharacterService::OnNotifyActorTeleport(const NotifyActorTeleport& acMessag
         return;
     }
 
-    if (MoveActor(pActor, acMessage.WorldSpaceId, acMessage.CellId, acMessage.Position))
+    if (MoveActor(pActor, acMessage.WorldSpaceId, acMessage.CellId, acMessage.Position, acMessage.Position))
     {
         spdlog::info(
             "Successfully teleported actor, form id: {:X}, world space: {:X}, cell: {:X}, position: ({}, {}, {})", pActor->formID, acMessage.WorldSpaceId.BaseId,
@@ -1454,7 +1480,9 @@ void CharacterService::OnPartyJoinedEvent(const PartyJoinedEvent& acEvent) noexc
     }
 }
 
-bool CharacterService::MoveActor(const Actor* apActor, const GameId& acWorldSpaceId, const GameId& acCellId, const glm::vec3& acPosition, const bool aLogCellFailure) const noexcept
+bool CharacterService::MoveActor(
+    const Actor* apActor, const GameId& acWorldSpaceId, const GameId& acCellId, const glm::vec3& acPosition, const glm::vec3& acActorPosition,
+    const bool aLogCellFailure) const noexcept
 {
     TESObjectCELL* pCell = nullptr;
     if (!acWorldSpaceId)
@@ -1483,7 +1511,7 @@ bool CharacterService::MoveActor(const Actor* apActor, const GameId& acWorldSpac
         return false;
     }
 
-    apActor->MoveTo(pCell, acPosition);
+    apActor->MoveTo(pCell, acActorPosition);
     const bool hadPendingMove = m_pendingActorMoves.erase(apActor->formID) != 0;
     if (hadPendingMove)
     {
@@ -1503,12 +1531,14 @@ bool CharacterService::MoveActor(const Actor* apActor, const GameId& acWorldSpac
     return true;
 }
 
-void CharacterService::QueuePendingActorMove(const uint32_t aFormId, const GameId& acWorldSpaceId, const GameId& acCellId, const glm::vec3& acPosition) const noexcept
+void CharacterService::QueuePendingActorMove(
+    const uint32_t aFormId, const GameId& acWorldSpaceId, const GameId& acCellId, const glm::vec3& acPosition, const bool aPreservePosition) const noexcept
 {
     PendingActorMove pendingMove{};
     pendingMove.WorldSpaceId = acWorldSpaceId;
     pendingMove.CellId = acCellId;
     pendingMove.Position = acPosition;
+    pendingMove.PreservePosition = aPreservePosition;
 
     auto view = m_world.view<RemoteComponent>();
     for (const entt::entity entity : view)
@@ -1564,7 +1594,8 @@ void CharacterService::RunPendingActorMoves() noexcept
         if (!IsSpawnWithinLoadedArea(m_world, *pPlayer, pendingMove.CellId, pendingMove.WorldSpaceId, pendingMove.Position.x, pendingMove.Position.y, pActor->IsDragon()))
             continue;
 
-        MoveActor(pActor, pendingMove.WorldSpaceId, pendingMove.CellId, pendingMove.Position, false);
+        const glm::vec3 actorPosition = pendingMove.PreservePosition ? pActor->position : pendingMove.Position;
+        MoveActor(pActor, pendingMove.WorldSpaceId, pendingMove.CellId, pendingMove.Position, actorPosition, false);
     }
 }
 
@@ -1903,7 +1934,7 @@ Actor* CharacterService::CreateCharacterForEntity(entt::entity aEntity) const no
     pActor->GetExtension()->SetRemote(true);
     pActor->rotation.x = acMessage.Rotation.x;
     pActor->rotation.z = acMessage.Rotation.y;
-    MoveActor(pActor, acMessage.WorldSpaceId, acMessage.CellId, pInterpolationComponent->Position);
+    MoveActor(pActor, acMessage.WorldSpaceId, acMessage.CellId, pInterpolationComponent->Position, pInterpolationComponent->Position);
     pActor->SetActorValues(acMessage.InitialActorValues);
 
     pActor->GetExtension()->SetPlayer(acMessage.IsPlayer);
@@ -2342,7 +2373,7 @@ void CharacterService::RunSpawnUpdates() const noexcept
             remoteComponent.CachedRefId = pActor->formID;
         }
 
-        waitingFor3D.NeedsCellMove = !MoveActor(pActor, spawnRequest.WorldSpaceId, spawnRequest.CellId, interpolationComponent.Position);
+        waitingFor3D.NeedsCellMove = !MoveActor(pActor, spawnRequest.WorldSpaceId, spawnRequest.CellId, interpolationComponent.Position, interpolationComponent.Position);
         if (waitingFor3D.NeedsCellMove)
             QueuePendingActorMove(pActor->formID, spawnRequest.WorldSpaceId, spawnRequest.CellId, interpolationComponent.Position);
     }
