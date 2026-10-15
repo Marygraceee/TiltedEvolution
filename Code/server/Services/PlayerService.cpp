@@ -117,10 +117,13 @@ void PlayerService::HandleExteriorCellEnter(const PacketEvent<EnterExteriorCellR
         const auto entity = *pPlayer->GetCharacter();
         const CellIdComponent currentCell{message.CellId, message.WorldSpaceId, message.CurrentCoords};
 
+        pPlayer->SetCellComponent(currentCell);
+        if (m_world.all_of<CellIdComponent>(entity))
+            m_world.replace<CellIdComponent>(entity, currentCell);
+
         if (previousCell)
             m_world.GetDispatcher().trigger(CharacterExteriorCellChangeEvent{pPlayer, entity, message.WorldSpaceId, message.CurrentCoords});
 
-        pPlayer->SetCellComponent(currentCell);
         UpdateCharacterVisibility(m_world, pPlayer, previousCell, currentCell);
         SendPlayerCellChanged(pPlayer);
     }
@@ -140,7 +143,10 @@ void PlayerService::HandleInteriorCellEnter(const PacketEvent<EnterInteriorCellR
     {
         const auto entity = *pPlayer->GetCharacter();
         if (m_world.all_of<CellIdComponent>(entity))
+        {
+            m_world.replace<CellIdComponent>(entity, currentCell);
             m_world.GetDispatcher().trigger(CharacterInteriorCellChangeEvent{pPlayer, entity, message.CellId});
+        }
     }
 
     UpdateCharacterVisibility(m_world, pPlayer, previousCell, currentCell);
