@@ -250,9 +250,7 @@ void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChan
         return;
     }
 
-    if (message.HasDroppedObject && message.HasSenderCell &&
-        ((message.SenderWorldSpaceId == GameId{} && message.SenderCellId == GameId{}) ||
-         (message.SenderWorldSpaceId != GameId{} && message.SenderCurrentCoords == GridCellCoords{})))
+    if (message.HasDroppedObject && message.HasSenderCell && message.SenderWorldSpaceId == GameId{} && message.SenderCellId == GameId{})
     {
         rejectDroppedItemDrop();
         return;
