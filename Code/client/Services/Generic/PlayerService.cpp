@@ -52,6 +52,9 @@ PlayerService::PlayerService(World& aWorld, entt::dispatcher& aDispatcher, Trans
 
 void PlayerService::OnUpdate(const UpdateEvent&) noexcept
 {
+    if (!PlayerCharacter::Get())
+        return;
+
     RunRespawnUpdates();
     RunPostDeathUpdates();
     RunDifficultyUpdates();
@@ -71,7 +74,9 @@ void PlayerService::OnConnected(const ConnectedEvent& acEvent) noexcept
 
 void PlayerService::OnDisconnected(const DisconnectedEvent& acEvent) noexcept
 {
-    PlayerCharacter::Get()->SetDifficulty(m_previousDifficulty);
+    if (PlayerCharacter* pPlayer = PlayerCharacter::Get())
+        pPlayer->SetDifficulty(m_previousDifficulty);
+
     m_serverDifficulty = m_previousDifficulty = 6;
 
     ToggleDeathSystem(false);
@@ -347,5 +352,6 @@ void PlayerService::ToggleDeathSystem(bool aSet) noexcept
 {
     m_isDeathSystemEnabled = aSet;
 
-    PlayerCharacter::Get()->SetPlayerRespawnMode(aSet);
+    if (PlayerCharacter* pPlayer = PlayerCharacter::Get())
+        pPlayer->SetPlayerRespawnMode(aSet);
 }
