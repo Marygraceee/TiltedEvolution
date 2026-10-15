@@ -274,6 +274,35 @@ void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& ac
         pActor = Cast<Actor>(pReference);
     }
 
+    if (acMessage.DropRejected && acMessage.OwnershipEpoch != 0 && actorEntity == entt::null)
+    {
+        auto localView = m_world.view<LocalComponent, FormIdComponent>();
+        const auto localIt = std::find_if(
+            localView.begin(), localView.end(), [localView, &acMessage](const entt::entity aEntity) { return localView.get<LocalComponent>(aEntity).Id == acMessage.ServerId; });
+
+        if (localIt != localView.end())
+        {
+            actorEntity = *localIt;
+            pActor = Cast<Actor>(TESForm::GetById(localView.get<FormIdComponent>(*localIt).Id));
+        }
+        else
+        {
+            auto remoteView = m_world.view<RemoteComponent>();
+            const auto remoteIt = std::find_if(
+                remoteView.begin(), remoteView.end(),
+                [remoteView, &acMessage](const entt::entity aEntity) { return remoteView.get<RemoteComponent>(aEntity).Id == acMessage.ServerId; });
+
+            if (remoteIt != remoteView.end())
+            {
+                actorEntity = *remoteIt;
+                const auto& remoteComponent = remoteView.get<RemoteComponent>(*remoteIt);
+                const auto* pFormIdComponent = m_world.try_get<FormIdComponent>(*remoteIt);
+                const uint32_t formId = pFormIdComponent ? pFormIdComponent->Id : remoteComponent.CachedRefId;
+                pActor = Cast<Actor>(TESForm::GetById(formId));
+            }
+        }
+    }
+
     const auto updatePendingInventory = [this, actorEntity, &acMessage]()
     {
         if (actorEntity == entt::null)
