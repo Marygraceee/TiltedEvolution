@@ -20,7 +20,8 @@ struct NotifyInventoryChanges final : ServerMessage
     bool operator==(const NotifyInventoryChanges& acRhs) const noexcept
     {
         return GetOpcode() == acRhs.GetOpcode() && ServerId == acRhs.ServerId && OwnershipEpoch == acRhs.OwnershipEpoch && Item == acRhs.Item && DropId == acRhs.DropId &&
-               DroppedObject == acRhs.DroppedObject && HasDroppedObject == acRhs.HasDroppedObject && Drop == acRhs.Drop;
+               DroppedObject == acRhs.DroppedObject && HasDroppedObject == acRhs.HasDroppedObject && Drop == acRhs.Drop && ReferenceFormId == acRhs.ReferenceFormId &&
+               DropRejected == acRhs.DropRejected;
     }
 
     uint32_t ServerId{};
@@ -30,4 +31,6 @@ struct NotifyInventoryChanges final : ServerMessage
     ObjectData DroppedObject{};
     bool HasDroppedObject{};
     bool Drop = false;
+    uint32_t ReferenceFormId{};
+    bool DropRejected{};
 };

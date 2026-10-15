@@ -72,12 +72,30 @@ void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChan
 {
     auto& message = acMessage.Packet;
 
+    const auto rejectDroppedItemDrop = [&]()
+    {
+        if (!message.Drop || message.Item.Count >= 0 || message.Item.Count == std::numeric_limits<int32_t>::min())
+            return;
+
+        NotifyInventoryChanges correction;
+        correction.ServerId = message.ServerId;
+        correction.OwnershipEpoch = message.OwnershipEpoch;
+        correction.Item = message.Item;
+        correction.Item.Count = -correction.Item.Count;
+        correction.ReferenceFormId = message.ReferenceFormId;
+        correction.DropRejected = true;
+        acMessage.pPlayer->Send(correction);
+    };
+
     auto view = m_world.view<InventoryComponent>();
 
     const auto it = view.find(static_cast<entt::entity>(message.ServerId));
 
     if (it == view.end())
+    {
+        rejectDroppedItemDrop();
         return;
+    }
 
     bool isRemoteNpcInteraction = false;
 
@@ -91,6 +109,7 @@ void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChan
             spdlog::debug(
                 "Rejected inventory change from player {:X} for actor {:X} at stale epoch {}; current owner is {:X} at epoch {}",
                 acMessage.pPlayer->GetId(), message.ServerId, message.OwnershipEpoch, ownerId, pOwnerComponent->OwnershipEpoch);
+            rejectDroppedItemDrop();
             return;
         }
 
@@ -109,6 +128,7 @@ void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChan
                 const uint32_t ownerId = pOwner ? pOwner->GetId() : 0;
                 spdlog::debug(
                     "Rejected inventory change from player {:X} for actor {:X} because it is owned by player {:X}", acMessage.pPlayer->GetId(), message.ServerId, ownerId);
+                rejectDroppedItemDrop();
                 return;
             }
         }
@@ -118,6 +138,7 @@ void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChan
         spdlog::warn(
             "Rejected inventory change from player {:X} because object {:X} unexpectedly carried ownership epoch {}",
             acMessage.pPlayer->GetId(), message.ServerId, message.OwnershipEpoch);
+        rejectDroppedItemDrop();
         return;
     }
 
@@ -224,12 +245,18 @@ void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChan
 
     if (message.HasDroppedObject &&
         (!message.Drop || !message.DroppedObject.IsDroppedItem || message.ReferenceFormId == 0 || message.DroppedObject.LocalReferenceId != message.ReferenceFormId))
+    {
+        rejectDroppedItemDrop();
         return;
+    }
 
     if (message.HasDroppedObject && message.HasSenderCell &&
         ((message.SenderWorldSpaceId == GameId{} && message.SenderCellId == GameId{}) ||
          (message.SenderWorldSpaceId != GameId{} && message.SenderCurrentCoords == GridCellCoords{})))
+    {
+        rejectDroppedItemDrop();
         return;
+    }
 
     bool shouldCreateDroppedItem = message.Drop;
     ObjectData droppedObject = message.DroppedObject;
@@ -240,7 +267,10 @@ void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChan
             const auto* pCell = m_world.try_get<CellIdComponent>(*it);
             const auto* pMovement = m_world.try_get<MovementComponent>(*it);
             if (!pCell || !pMovement)
-                shouldCreateDroppedItem = false;
+            {
+                rejectDroppedItemDrop();
+                return;
+            }
             else
             {
                 droppedObject.Id = message.Item.BaseId;
@@ -261,7 +291,10 @@ void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChan
         }
 
         if (shouldCreateDroppedItem && droppedObject.CurrentInventory.Entries.size() != 1)
+        {
+            rejectDroppedItemDrop();
             return;
+        }
 
         if (shouldCreateDroppedItem)
         {
@@ -272,14 +305,20 @@ void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChan
             expectedDroppedEntry.ExtraWornLeft = false;
             if (droppedEntry.Count != -message.Item.Count || !droppedEntry.CanBeMerged(expectedDroppedEntry) || droppedObject.Id != message.Item.BaseId || !droppedObject.CellId ||
                 GridCellCoords::CalculateGridCellCoords(droppedObject.Position) != droppedObject.CurrentCoords)
+            {
+                rejectDroppedItemDrop();
                 return;
+            }
 
             CellIdComponent droppedCell{droppedObject.CellId, droppedObject.WorldSpaceId, droppedObject.CurrentCoords};
             const CellIdComponent senderCell = message.HasDroppedObject && message.HasSenderCell
                                                    ? CellIdComponent{message.SenderCellId, message.SenderWorldSpaceId, message.SenderCurrentCoords}
                                                    : acMessage.pPlayer->GetCellComponent();
             if (!droppedCell.IsInRange(senderCell, false))
+            {
+                rejectDroppedItemDrop();
                 return;
+            }
         }
     }
 
@@ -298,7 +337,10 @@ void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChan
         }
 
         if (storedEntry == inventoryComponent.Content.Entries.end() || storedEntry->Count < -message.Item.Count)
+        {
+            rejectDroppedItemDrop();
             return;
+        }
 
         inventoryChange.ExtraWorn = storedEntry->ExtraWorn;
         inventoryChange.ExtraWornLeft = storedEntry->ExtraWornLeft;

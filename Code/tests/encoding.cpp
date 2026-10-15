@@ -645,6 +645,23 @@ TEST_CASE("Dropped item assignment encoding", "[encoding.dropped_item]")
     REQUIRE(notifyMessage);
     auto decodedNotify = CastUnique<NotifyInventoryChanges>(std::move(notifyMessage));
     REQUIRE(*decodedNotify == notify);
+
+    NotifyInventoryChanges rejectedDrop{};
+    rejectedDrop.ServerId = 11;
+    rejectedDrop.OwnershipEpoch = 5;
+    rejectedDrop.Item = item;
+    rejectedDrop.ReferenceFormId = droppedItem.LocalReferenceId;
+    rejectedDrop.DropRejected = true;
+
+    Buffer rejectedDropBuffer(1000);
+    Buffer::Writer rejectedDropWriter(&rejectedDropBuffer);
+    rejectedDrop.Serialize(rejectedDropWriter);
+
+    Buffer::Reader rejectedDropReader(&rejectedDropBuffer);
+    auto rejectedDropMessage = factory.Extract(rejectedDropReader);
+    REQUIRE(rejectedDropMessage);
+    auto decodedRejectedDrop = CastUnique<NotifyInventoryChanges>(std::move(rejectedDropMessage));
+    REQUIRE(*decodedRejectedDrop == rejectedDrop);
 }
 
 TEST_CASE("Object inventory changes preserve counts above 255", "[encoding.object_inventory]")

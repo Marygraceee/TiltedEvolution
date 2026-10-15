@@ -98,6 +98,8 @@ void InventoryService::OnInventoryChangeEvent(const InventoryChangeEvent& acEven
     request.Drop = acEvent.Drop;
     request.UpdateClients = acEvent.UpdateClients;
     request.ReferenceFormId = acEvent.ReferenceFormId;
+    bool addedPendingLocalDrop = false;
+    bool waitingForLocalDropPickup = false;
 
     if (acEvent.ReferenceFormId != 0)
     {
@@ -107,9 +109,18 @@ void InventoryService::OnInventoryChangeEvent(const InventoryChangeEvent& acEven
             request.DropId = droppedIt->second;
         }
         else if (!acEvent.Drop && m_pendingLocalDropForms.contains(acEvent.ReferenceFormId))
-            m_pendingLocalDropPickups.insert(acEvent.ReferenceFormId);
+        {
+            PendingLocalDropPickup pickup{};
+            pickup.ServerId = serverId;
+            pickup.OwnershipEpoch = acEvent.OwnershipEpoch;
+            pickup.Item = acEvent.Item;
+            pickup.UpdateClients = acEvent.UpdateClients;
+            m_pendingLocalDropPickups.try_emplace(acEvent.ReferenceFormId, pickup);
+            waitingForLocalDropPickup = true;
+        }
         else if (acEvent.Drop)
         {
+            addedPendingLocalDrop = m_pendingLocalDropForms.insert(acEvent.ReferenceFormId).second;
             TESObjectREFR* pDroppedObject = Cast<TESObjectREFR>(TESForm::GetById(acEvent.ReferenceFormId));
             TESObjectCELL* pCell = pDroppedObject ? pDroppedObject->GetParentCellEx() : nullptr;
             if (pDroppedObject && pCell && pDroppedObject->baseForm && m_world.GetModSystem().GetServerModId(pDroppedObject->baseForm->formID, request.DroppedObject.Id) &&
@@ -139,7 +150,6 @@ void InventoryService::OnInventoryChangeEvent(const InventoryChangeEvent& acEven
                     droppedEntry.ExtraWornLeft = false;
                     request.DroppedObject.CurrentInventory.Entries.push_back(std::move(droppedEntry));
                     request.HasDroppedObject = true;
-                    m_pendingLocalDropForms.insert(pDroppedObject->formID);
                 }
             }
         }
@@ -162,7 +172,14 @@ void InventoryService::OnInventoryChangeEvent(const InventoryChangeEvent& acEven
         }
     }
 
-    m_transport.Send(request);
+    if (waitingForLocalDropPickup)
+        return;
+
+    if (!m_transport.Send(request))
+    {
+        if (addedPendingLocalDrop)
+            m_pendingLocalDropForms.erase(acEvent.ReferenceFormId);
+    }
 
     spdlog::info("Sending item request, item: {:X}, count: {}, target object: {:X}", acEvent.Item.BaseId.BaseId, acEvent.Item.Count, acEvent.FormId);
 }
@@ -267,6 +284,31 @@ void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& ac
             pWaitingFor3D->SpawnRequest.InventoryContent.AddOrRemoveEntry(acMessage.Item);
     };
 
+    if (acMessage.DropRejected)
+    {
+        const bool pickedUpBeforeRejection = acMessage.ReferenceFormId != 0 && m_pendingLocalDropPickups.erase(acMessage.ReferenceFormId) != 0;
+        const bool hadPendingDrop = acMessage.ReferenceFormId == 0 || m_pendingLocalDropForms.erase(acMessage.ReferenceFormId) != 0;
+
+        if (acMessage.ReferenceFormId != 0)
+        {
+            ScopedReferencesOverride referencesOverride;
+            TESObjectREFR* pDroppedReference = Cast<TESObjectREFR>(TESForm::GetById(acMessage.ReferenceFormId));
+            if (pDroppedReference && pDroppedReference->IsTemporary())
+                pDroppedReference->Delete();
+        }
+
+        if (hadPendingDrop && !pickedUpBeforeRejection && acMessage.Item.Count > 0)
+        {
+            updatePendingInventory();
+            if (pActor)
+            {
+                ScopedInventoryOverride inventoryOverride;
+                pActor->AddOrRemoveItem(acMessage.Item);
+            }
+        }
+        return;
+    }
+
     if (acMessage.Drop)
     {
         if (acMessage.HasDroppedObject)
@@ -302,6 +344,27 @@ void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& ac
         {
             ScopedInventoryOverride _;
             pActor->AddOrRemoveItem(acMessage.Item);
+        }
+
+        if (acMessage.HasDroppedObject && acMessage.DroppedObject.LocalReferenceId != 0)
+        {
+            const auto pendingPickup = m_pendingLocalDropPickups.find(acMessage.DroppedObject.LocalReferenceId);
+            if (pendingPickup != m_pendingLocalDropPickups.end() && pendingPickup->second.DropId == acMessage.DropId)
+            {
+                m_pendingLocalDropPickups.erase(pendingPickup);
+                m_pendingLocalDropForms.erase(acMessage.DroppedObject.LocalReferenceId);
+            }
+        }
+        else if (acMessage.Item.Count < 0)
+        {
+            const auto pendingPickup = std::find_if(
+                m_pendingLocalDropPickups.begin(), m_pendingLocalDropPickups.end(),
+                [&acMessage](const auto& entry) { return entry.second.Sent && entry.second.DropId == acMessage.DropId; });
+            if (pendingPickup != m_pendingLocalDropPickups.end())
+            {
+                m_pendingLocalDropForms.erase(pendingPickup->first);
+                m_pendingLocalDropPickups.erase(pendingPickup);
+            }
         }
 
         if (acMessage.HasDroppedObject)
@@ -412,13 +475,40 @@ void InventoryService::ApplyDroppedItem(const ObjectData& acData) noexcept
     if (!acData.IsDroppedItem || acData.ServerId == 0 || acData.CurrentInventory.Entries.size() != 1)
         return;
 
-    if (acData.LocalReferenceId != 0 && m_pendingLocalDropPickups.erase(acData.LocalReferenceId) != 0)
+    const auto& item = acData.CurrentInventory.Entries.front();
+    if (acData.LocalReferenceId != 0)
     {
+        const auto pendingPickup = m_pendingLocalDropPickups.find(acData.LocalReferenceId);
+        if (pendingPickup != m_pendingLocalDropPickups.end())
+        {
+            m_pendingLocalDropForms.erase(acData.LocalReferenceId);
+            TrackDroppedItem(acData, acData.LocalReferenceId, true);
+
+            if (!pendingPickup->second.Sent)
+            {
+                RequestInventoryChanges request;
+                request.ServerId = pendingPickup->second.ServerId;
+                request.OwnershipEpoch = pendingPickup->second.OwnershipEpoch;
+                request.Item = pendingPickup->second.Item;
+                request.DropId = acData.ServerId;
+                request.ReferenceFormId = acData.LocalReferenceId;
+                request.UpdateClients = pendingPickup->second.UpdateClients;
+                pendingPickup->second.DropId = acData.ServerId;
+                pendingPickup->second.Sent = true;
+                if (!m_transport.Send(request))
+                    pendingPickup->second.Sent = false;
+            }
+            return;
+        }
+
         m_pendingLocalDropForms.erase(acData.LocalReferenceId);
-        return;
     }
 
-    const auto& item = acData.CurrentInventory.Entries.front();
+    const auto pendingPickup =
+        std::find_if(m_pendingLocalDropPickups.begin(), m_pendingLocalDropPickups.end(), [&acData](const auto& entry) { return entry.second.DropId == acData.ServerId; });
+    if (pendingPickup != m_pendingLocalDropPickups.end())
+        return;
+
     if (item.Count <= 0)
     {
         RemoveDroppedItem(acData.ServerId, true);
@@ -431,7 +521,6 @@ void InventoryService::ApplyDroppedItem(const ObjectData& acData) noexcept
         const uint32_t expectedBaseId = m_world.GetModSystem().GetGameId(item.BaseId);
         if (pLocalReference && pLocalReference->IsTemporary() && pLocalReference->baseForm && pLocalReference->baseForm->formID == expectedBaseId)
         {
-            m_pendingLocalDropForms.erase(acData.LocalReferenceId);
             RemoveDroppedItem(acData.ServerId, false);
             TrackDroppedItem(acData, pLocalReference->formID, true);
             return;

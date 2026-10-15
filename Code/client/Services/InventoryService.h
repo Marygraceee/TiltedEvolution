@@ -60,6 +60,16 @@ struct InventoryService
     void OnNotifyEquipmentChanges(const NotifyEquipmentChanges& acMessage) noexcept;
 
 private:
+    struct PendingLocalDropPickup
+    {
+        uint32_t ServerId{};
+        uint32_t OwnershipEpoch{};
+        uint32_t DropId{};
+        Inventory::Entry Item{};
+        bool UpdateClients = true;
+        bool Sent{};
+    };
+
     /**
      * Checks whether local actors their weapon draw states have changed,
      * and if so, send the new states to the server.
@@ -87,5 +97,5 @@ private:
     std::unordered_map<uint32_t, ObjectData> m_droppedServerData;
     std::unordered_set<uint32_t> m_localDroppedForms;
     std::unordered_set<uint32_t> m_pendingLocalDropForms;
-    std::unordered_set<uint32_t> m_pendingLocalDropPickups;
+    std::unordered_map<uint32_t, PendingLocalDropPickup> m_pendingLocalDropPickups;
 };

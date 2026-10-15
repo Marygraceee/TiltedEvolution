@@ -11,6 +11,9 @@ void NotifyInventoryChanges::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter
     if (HasDroppedObject)
         DroppedObject.Serialize(aWriter);
     Serialization::WriteBool(aWriter, Drop);
+    Serialization::WriteBool(aWriter, DropRejected);
+    if (DropRejected)
+        Serialization::WriteVarInt(aWriter, ReferenceFormId);
 }
 
 void NotifyInventoryChanges::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) noexcept
@@ -25,4 +28,8 @@ void NotifyInventoryChanges::DeserializeRaw(TiltedPhoques::Buffer::Reader& aRead
     if (HasDroppedObject)
         DroppedObject.Deserialize(aReader);
     Drop = Serialization::ReadBool(aReader);
+    DropRejected = Serialization::ReadBool(aReader);
+    ReferenceFormId = 0;
+    if (DropRejected)
+        ReferenceFormId = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
 }
