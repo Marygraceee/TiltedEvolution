@@ -31,6 +31,9 @@ void DebugService::DrawQuestDebugView()
 
         for (auto& objective : pPlayer->objectives)
         {
+            if (!objective.instance)
+                continue;
+
             TESQuest* pQuest = objective.instance->quest;
             if (!pQuest)
                 continue;

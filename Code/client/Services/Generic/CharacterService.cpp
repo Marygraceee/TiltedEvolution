@@ -1551,6 +1551,9 @@ void CharacterService::RequestServerAssignment(const entt::entity aEntity) const
 
         for (const auto& objective : PlayerCharacter::Get()->objectives)
         {
+            if (!objective.instance)
+                continue;
+
             auto* pQuest = objective.instance->quest;
             if (!pQuest)
                 continue;
