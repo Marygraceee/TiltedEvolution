@@ -195,9 +195,15 @@ void DiscoveryService::DetectGridCellChange(TESWorldSpace* aWorldSpace, bool aNe
         }
     }
 
-    TESObjectCELL* pCell = PlayerCharacter::Get()->GetParentCellEx();
+    TESObjectCELL* pCell = PlayerCharacter::Get()->parentCell;
     if (!pCell)
         pCell = ModManager::Get()->GetCellFromCoordinates(pTES->currentGridX, pTES->currentGridY, aWorldSpace, false);
+
+    if (!pCell)
+    {
+        spdlog::debug("Failed to find current cell at coordinates {}, {} in world space {:X}", pTES->currentGridX, pTES->currentGridY, worldSpaceId);
+        return;
+    }
 
     if (!m_world.GetModSystem().GetServerModId(pCell->formID, changeEvent.PlayerCell))
     {
