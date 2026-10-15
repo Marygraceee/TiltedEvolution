@@ -95,6 +95,12 @@ void PlayerService::HandleGridCellShift(const PacketEvent<ShiftGridCellRequest>&
     const CellIdComponent currentCell{message.PlayerCell, message.WorldSpaceId, message.CenterCoords};
 
     pPlayer->SetCellComponent(currentCell);
+    if (const auto character = pPlayer->GetCharacter())
+    {
+        if (m_world.all_of<CellIdComponent>(*character))
+            m_world.replace<CellIdComponent>(*character, currentCell);
+    }
+
     m_world.GetDispatcher().trigger(PlayerLeaveCellEvent(previousCell.Cell));
     UpdateCharacterVisibility(m_world, pPlayer, previousCell, currentCell);
 
