@@ -111,7 +111,7 @@ void AnimationSystem::AddAction(RemoteAnimationComponent& aAnimationComponent, c
 
 void AnimationSystem::SerializeMovement(World& aWorld, Actor* apActor, Movement& aMovement) noexcept
 {
-    if (const auto pCell = apActor->parentCell)
+    if (const auto pCell = apActor->GetParentCellEx())
         aWorld.GetModSystem().GetServerModId(pCell->formID, aMovement.CellId.ModId, aMovement.CellId.BaseId);
 
     if (const auto pWorldSpace = apActor->GetWorldSpace())
