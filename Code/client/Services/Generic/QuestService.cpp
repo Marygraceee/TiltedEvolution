@@ -32,8 +32,42 @@ using ObjectiveDisplayedSetter = PapyrusFunction<void, TESQuest, int32_t, bool, 
 
 static bool IsValidObjectiveFlags(const uint8_t aFlags)
 {
-    constexpr uint8_t knownFlags = QuestLog::ObjectiveDisplayed | QuestLog::ObjectiveCompleted | QuestLog::ObjectiveFailed;
-    return (aFlags & ~knownFlags) == 0 && (aFlags & (QuestLog::ObjectiveCompleted | QuestLog::ObjectiveFailed)) != (QuestLog::ObjectiveCompleted | QuestLog::ObjectiveFailed);
+    constexpr uint8_t knownFlags = QuestLog::ObjectiveFlagsMask | QuestLog::ClientQuestFlagsMask;
+    const uint8_t objectiveFlags = aFlags & QuestLog::ObjectiveFlagsMask;
+    return (aFlags & ~knownFlags) == 0 &&
+           (objectiveFlags & (QuestLog::ObjectiveCompleted | QuestLog::ObjectiveFailed)) != (QuestLog::ObjectiveCompleted | QuestLog::ObjectiveFailed);
+}
+
+static uint8_t GetQuestStateFlags(const TESQuest* apQuest)
+{
+    uint8_t flags = 0;
+    if (apQuest->flags & TESQuest::Flags::Completed)
+        flags |= QuestLog::QuestCompleted;
+    if (apQuest->flags & TESQuest::Flags::Failed)
+        flags |= QuestLog::QuestFailed;
+    if (apQuest->IsStopped())
+        flags |= QuestLog::QuestStopped;
+    return flags;
+}
+
+static void ApplyRemoteQuestFlags(TESQuest* apQuest, const uint8_t aFlags)
+{
+    if ((aFlags & ~QuestLog::QuestFlagsMask) != 0)
+        return;
+
+    uint16_t desiredFlags = 0;
+    if (aFlags & QuestLog::QuestCompleted)
+        desiredFlags |= TESQuest::Flags::Completed;
+    if (aFlags & QuestLog::QuestFailed)
+        desiredFlags |= TESQuest::Flags::Failed;
+
+    constexpr uint16_t synchronizedFlags = TESQuest::Flags::Completed | TESQuest::Flags::Failed;
+    const uint16_t nextFlags = (apQuest->flags & ~synchronizedFlags) | desiredFlags;
+    if (nextFlags == apQuest->flags)
+        return;
+
+    apQuest->flags = nextFlags;
+    apQuest->MarkChanged(2);
 }
 
 static void ApplyRemoteObjectiveState(
@@ -95,7 +129,7 @@ static void SendObjectiveStateUpdates(World& aWorld, TESQuest* apQuest, const Ga
         update.Id = aQuestId;
         update.Stage = objective->index;
         update.Status = RequestQuestUpdate::ObjectiveUpdate;
-        update.ClientQuestType = flags;
+        update.ClientQuestType = flags | QuestLog::EncodeClientQuestFlags(GetQuestStateFlags(apQuest));
         aWorld.GetTransport().Send(update);
     }
 }
@@ -181,8 +215,14 @@ BSTEventResult QuestService::OnEvent(const TESQuestStartStopEvent* apEvent, cons
             }
         }
 
+        uint8_t stateFlags = GetQuestStateFlags(pQuest);
+        if (apEvent->started)
+            stateFlags &= ~QuestLog::QuestStopped;
+        else
+            stateFlags |= QuestLog::QuestStopped;
+
         m_world.GetRunner().Queue(
-            [&, formId = pQuest->formID, stageId = pQuest->currentStage, started = apEvent->started, type = pQuest->type]()
+            [&, formId = pQuest->formID, stageId = pQuest->currentStage, started = apEvent->started, type = pQuest->type, stateFlags]()
             {
                 GameId Id;
                 auto& modSys = m_world.GetModSystem();
@@ -192,7 +232,7 @@ BSTEventResult QuestService::OnEvent(const TESQuestStartStopEvent* apEvent, cons
                     update.Id = Id;
                     update.Stage = stageId;
                     update.Status = started ? RequestQuestUpdate::Started : RequestQuestUpdate::Stopped;
-                    update.ClientQuestType = static_cast<std::underlying_type_t<TESQuest::Type>>(type); 
+                    update.ClientQuestType = static_cast<std::underlying_type_t<TESQuest::Type>>(type) | QuestLog::EncodeClientQuestFlags(stateFlags);
 
                     m_world.GetTransport().Send(update);
 
@@ -245,7 +285,7 @@ BSTEventResult QuestService::OnEvent(const TESQuestStageEvent* apEvent, const Ev
         }
 
         m_world.GetRunner().Queue(
-            [&, formId = apEvent->formId, stageId = apEvent->stageId, type = pQuest->type]()
+            [&, formId = apEvent->formId, stageId = apEvent->stageId, type = pQuest->type, stateFlags = GetQuestStateFlags(pQuest)]()
             {
                 GameId Id;
                 auto& modSys = m_world.GetModSystem();
@@ -255,7 +295,7 @@ BSTEventResult QuestService::OnEvent(const TESQuestStageEvent* apEvent, const Ev
                     update.Id = Id;
                     update.Stage = stageId;
                     update.Status = RequestQuestUpdate::StageUpdate;
-                    update.ClientQuestType = static_cast<std::underlying_type_t<TESQuest::Type>>(type);
+                    update.ClientQuestType = static_cast<std::underlying_type_t<TESQuest::Type>>(type) | QuestLog::EncodeClientQuestFlags(stateFlags);
 
                     m_world.GetTransport().Send(update);
                     auto* currentQuest = Cast<TESQuest>(TESForm::GetById(formId));
@@ -275,11 +315,16 @@ void QuestService::OnQuestUpdate(const NotifyQuestUpdate& aUpdate) noexcept
         if (!IsValidObjectiveFlags(aUpdate.ClientQuestType))
             return;
 
+        const uint8_t objectiveFlags = aUpdate.ClientQuestType & QuestLog::ObjectiveFlagsMask;
+        const uint8_t questFlags = QuestLog::DecodeClientQuestFlags(aUpdate.ClientQuestType);
+
         ModSystem& modSystem = World::Get().GetModSystem();
         const uint32_t formId = modSystem.GetGameId(aUpdate.Id);
         TESQuest* pQuest = Cast<TESQuest>(TESForm::GetById(formId));
         if (!pQuest || IsNonSyncableQuest(pQuest))
             return;
+
+        ScopedQuestOverride questOverride;
 
         auto& papyrus = World::Get().ctx().at<PapyrusService>();
         const void* isObjectiveDisplayedAddress = papyrus.Get("Quest", "IsObjectiveDisplayed");
@@ -292,6 +337,9 @@ void QuestService::OnQuestUpdate(const NotifyQuestUpdate& aUpdate) noexcept
             !setObjectiveFailedAddress)
         {
             spdlog::error("Quest objective Papyrus functions are unavailable; skipping objective update");
+            if (questFlags & QuestLog::QuestStopped)
+                StopQuest(formId);
+            ApplyRemoteQuestFlags(pQuest, questFlags);
             return;
         }
 
@@ -301,14 +349,20 @@ void QuestService::OnQuestUpdate(const NotifyQuestUpdate& aUpdate) noexcept
         const ObjectiveDisplayedSetter setObjectiveDisplayed(setObjectiveDisplayedAddress);
         const ObjectiveBoolSetter setObjectiveCompleted(setObjectiveCompletedAddress);
         const ObjectiveBoolSetter setObjectiveFailed(setObjectiveFailedAddress);
-        ScopedQuestOverride questOverride;
-        if (!pQuest->IsActive())
+        if (!(questFlags & QuestLog::QuestStopped) && !pQuest->IsActive())
             pQuest->SetActive(true);
         ApplyRemoteObjectiveState(
-            pQuest, aUpdate.Stage, aUpdate.ClientQuestType, isObjectiveDisplayed, isObjectiveCompleted, isObjectiveFailed, setObjectiveDisplayed, setObjectiveCompleted,
-            setObjectiveFailed);
+            pQuest, aUpdate.Stage, objectiveFlags, isObjectiveDisplayed, isObjectiveCompleted, isObjectiveFailed, setObjectiveDisplayed, setObjectiveCompleted, setObjectiveFailed);
+        if (questFlags & QuestLog::QuestStopped)
+            StopQuest(formId);
+        ApplyRemoteQuestFlags(pQuest, questFlags);
         return;
     }
+
+    if ((aUpdate.ClientQuestType & (1 << 4)) || (aUpdate.ClientQuestType & 0x0F) > 11)
+        return;
+
+    const uint8_t questFlags = QuestLog::DecodeClientQuestFlags(aUpdate.ClientQuestType);
 
     ModSystem& modSystem = World::Get().GetModSystem();
     uint32_t formId = modSystem.GetGameId(aUpdate.Id);
@@ -319,11 +373,12 @@ void QuestService::OnQuestUpdate(const NotifyQuestUpdate& aUpdate) noexcept
         return;
     }
 
+    const uint8_t remoteQuestType = aUpdate.ClientQuestType & 0x0F;
     if (pQuest->type == TESQuest::Type::None || pQuest->type == TESQuest::Type::Miscellaneous)
     {
-        spdlog::info(__FUNCTION__ ": receiving type none/misc quest update gameId {:X} questStage {} questStatus {} questType {} formId {:X} name {}",
-                     aUpdate.Id.LogFormat(), aUpdate.Stage, aUpdate.Status,
-                     aUpdate.ClientQuestType, formId, pQuest->fullName.value.AsAscii());
+        spdlog::info(
+            __FUNCTION__ ": receiving type none/misc quest update gameId {:X} questStage {} questStatus {} questType {} formId {:X} name {}", aUpdate.Id.LogFormat(), aUpdate.Stage,
+            aUpdate.Status, remoteQuestType, formId, pQuest->fullName.value.AsAscii());
     }
 
     ScopedQuestOverride questOverride;
@@ -333,20 +388,28 @@ void QuestService::OnQuestUpdate(const NotifyQuestUpdate& aUpdate) noexcept
     case NotifyQuestUpdate::Started:
     {
         ApplyRemoteQuestStage(pQuest, aUpdate.Stage);
-        pQuest->SetActive(true);
+        if (questFlags & QuestLog::QuestStopped)
+            StopQuest(formId);
+        else
+            pQuest->SetActive(true);
+        ApplyRemoteQuestFlags(pQuest, questFlags);
         bResult = true;
         spdlog::info("Remote quest started: {:X}, stage: {}", formId, aUpdate.Stage);
         break;
     }
     case NotifyQuestUpdate::StageUpdate:
         ApplyRemoteQuestStage(pQuest, aUpdate.Stage);
-        if (!pQuest->IsActive())
+        if (questFlags & QuestLog::QuestStopped)
+            StopQuest(formId);
+        else if (!pQuest->IsActive())
             pQuest->SetActive(true);
+        ApplyRemoteQuestFlags(pQuest, questFlags);
         bResult = true;
         spdlog::info("Remote quest updated: {:X}, stage: {}", formId, aUpdate.Stage);
         break;
     case NotifyQuestUpdate::Stopped:
         bResult = StopQuest(formId);
+        ApplyRemoteQuestFlags(pQuest, questFlags);
         spdlog::info("Remote quest stopped: {:X}, stage: {}", formId, aUpdate.Stage);
         break;
     default: break;
@@ -380,7 +443,11 @@ void QuestService::OnPartyInfo(const NotifyPartyInfo& acPartyInfo) noexcept
     entriesByQuestId.reserve(ModManager::Get()->quests.length);
     for (TESQuest* pQuest : ModManager::Get()->quests)
     {
-        if (!pQuest || pQuest->IsStopped() || IsNonSyncableQuest(pQuest))
+        if (!pQuest || IsNonSyncableQuest(pQuest))
+            continue;
+
+        const uint8_t stateFlags = GetQuestStateFlags(pQuest);
+        if ((stateFlags & QuestLog::QuestStopped) && !(stateFlags & (QuestLog::QuestCompleted | QuestLog::QuestFailed)))
             continue;
 
         GameId questId{};
@@ -390,7 +457,7 @@ void QuestService::OnPartyInfo(const NotifyPartyInfo& acPartyInfo) noexcept
         const auto [entry, inserted] = entriesByQuestId.emplace(questId, request.QuestContent.Entries.size());
         if (inserted)
         {
-            request.QuestContent.Entries.push_back({questId, pQuest->currentStage, {}});
+            request.QuestContent.Entries.push_back({questId, pQuest->currentStage, {}, stateFlags});
             auto& questEntry = request.QuestContent.Entries.back();
             for (const auto& objective : pQuest->objectives)
             {
@@ -408,7 +475,10 @@ void QuestService::OnPartyInfo(const NotifyPartyInfo& acPartyInfo) noexcept
             }
         }
         else
+        {
             request.QuestContent.Entries[entry->second].Stage = pQuest->currentStage;
+            request.QuestContent.Entries[entry->second].StateFlags = stateFlags;
+        }
     }
 
     m_world.GetTransport().Send(request);
@@ -416,6 +486,12 @@ void QuestService::OnPartyInfo(const NotifyPartyInfo& acPartyInfo) noexcept
 
 void QuestService::OnQuestSnapshot(const NotifyQuestSnapshot& acSnapshot) noexcept
 {
+    if (!acSnapshot.QuestContent.IsValid())
+    {
+        spdlog::warn("Discarded invalid quest snapshot");
+        return;
+    }
+
     ModSystem& modSystem = m_world.GetModSystem();
     std::unordered_map<uint32_t, const QuestLog::Entry*> entriesByFormId;
     for (const auto& entry : acSnapshot.QuestContent.Entries)
@@ -453,16 +529,20 @@ void QuestService::OnQuestSnapshot(const NotifyQuestSnapshot& acSnapshot) noexce
         const auto entryIt = entriesByFormId.find(pQuest->formID);
         if (entryIt == entriesByFormId.end())
         {
-            if (!pQuest->IsStopped())
-                StopQuest(pQuest->formID);
+            StopQuest(pQuest->formID);
+            ApplyRemoteQuestFlags(pQuest, 0);
             continue;
         }
 
         const auto& questEntry = *entryIt->second;
-        if (pQuest->currentStage != questEntry.Stage || pQuest->IsStopped())
+        const bool shouldBeStopped = (questEntry.StateFlags & QuestLog::QuestStopped) != 0;
+        if (pQuest->currentStage != questEntry.Stage || (pQuest->IsStopped() && !shouldBeStopped))
             ApplyRemoteQuestStage(pQuest, questEntry.Stage);
-        if (!pQuest->IsActive())
+        if (shouldBeStopped)
+            StopQuest(pQuest->formID);
+        else if (!pQuest->IsActive())
             pQuest->SetActive(true);
+        ApplyRemoteQuestFlags(pQuest, questEntry.StateFlags);
 
         if (!canApplyObjectives)
             continue;

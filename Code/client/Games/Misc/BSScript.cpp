@@ -42,6 +42,47 @@ static TQuestObjectiveReset RealCompleteQuest = nullptr;
 static TQuestObjectiveReset RealCompleteAllObjectives = nullptr;
 static TQuestObjectiveReset RealFailAllObjectives = nullptr;
 
+static uint8_t GetQuestStateFlags(const TESQuest* apQuest)
+{
+    uint8_t flags = 0;
+    if (apQuest->flags & TESQuest::Flags::Completed)
+        flags |= QuestLog::QuestCompleted;
+    if (apQuest->flags & TESQuest::Flags::Failed)
+        flags |= QuestLog::QuestFailed;
+    if (apQuest->IsStopped())
+        flags |= QuestLog::QuestStopped;
+    return flags;
+}
+
+static void QueueQuestStateUpdate(const TESQuest* apQuest)
+{
+    if (!apQuest || ScopedQuestOverride::IsOverriden())
+        return;
+
+    World::Get().GetRunner().Queue(
+        [formId = apQuest->formID]()
+        {
+            World& world = World::Get();
+            if (!world.GetTransport().IsOnline() || !world.GetPartyService().IsInParty())
+                return;
+
+            auto* pQuest = Cast<TESQuest>(TESForm::GetById(formId));
+            if (!pQuest || QuestService::IsNonSyncableQuest(pQuest))
+                return;
+
+            GameId questId;
+            if (!world.GetModSystem().GetServerModId(formId, questId))
+                return;
+
+            RequestQuestUpdate update{};
+            update.Id = questId;
+            update.Stage = pQuest->currentStage;
+            update.Status = pQuest->IsStopped() ? RequestQuestUpdate::Stopped : RequestQuestUpdate::StageUpdate;
+            update.ClientQuestType = static_cast<uint8_t>(pQuest->type) | QuestLog::EncodeClientQuestFlags(GetQuestStateFlags(pQuest));
+            world.GetTransport().Send(update);
+        });
+}
+
 static void QueueObjectiveUpdate(const TESQuest* apQuest, const int32_t aObjectiveIndex)
 {
     if (!apQuest || ScopedQuestOverride::IsOverriden() || aObjectiveIndex < -1 || aObjectiveIndex > std::numeric_limits<uint16_t>::max())
@@ -87,7 +128,7 @@ static void QueueObjectiveUpdate(const TESQuest* apQuest, const int32_t aObjecti
                 update.Id = questId;
                 update.Stage = index;
                 update.Status = RequestQuestUpdate::ObjectiveUpdate;
-                update.ClientQuestType = flags;
+                update.ClientQuestType = flags | QuestLog::EncodeClientQuestFlags(GetQuestStateFlags(pQuest));
                 world.GetTransport().Send(update);
             };
 
@@ -127,12 +168,14 @@ static void __fastcall HookQuestReset(BSScript::IVirtualMachine* apVirtualMachin
 {
     RealQuestReset(apVirtualMachine, aStackId, apQuest);
     QueueObjectiveUpdate(apQuest, -1);
+    QueueQuestStateUpdate(apQuest);
 }
 
 static void __fastcall HookCompleteQuest(BSScript::IVirtualMachine* apVirtualMachine, uint32_t aStackId, const TESQuest* apQuest)
 {
     RealCompleteQuest(apVirtualMachine, aStackId, apQuest);
     QueueObjectiveUpdate(apQuest, -1);
+    QueueQuestStateUpdate(apQuest);
 }
 
 static void __fastcall HookCompleteAllObjectives(BSScript::IVirtualMachine* apVirtualMachine, uint32_t aStackId, const TESQuest* apQuest)

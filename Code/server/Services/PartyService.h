@@ -29,6 +29,7 @@ struct PartyService
             GameId Id{};
             uint16_t Stage{};
             uint8_t Status{};
+            uint8_t StateFlags{};
         };
 
         uint32_t LeaderPlayerId{};

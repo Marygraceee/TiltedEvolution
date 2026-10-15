@@ -812,6 +812,7 @@ TEST_CASE("Quest snapshot encoding", "[encoding.quest_snapshot]")
     RequestQuestSnapshot request{};
     request.QuestContent.Entries.push_back({GameId{2, 0x1234}, 25});
     request.QuestContent.Entries.push_back({GameId{3, 0x5678}, 40});
+    REQUIRE(request.QuestContent.SetQuestFlags(GameId{2, 0x1234}, QuestLog::QuestCompleted | QuestLog::QuestStopped));
 
     Buffer requestBuffer(1000);
     Buffer::Writer requestWriter(&requestBuffer);
@@ -837,6 +838,7 @@ TEST_CASE("Quest snapshot encoding", "[encoding.quest_snapshot]")
     REQUIRE(notifyMessage);
     auto decodedNotify = CastUnique<NotifyQuestSnapshot>(std::move(notifyMessage));
     REQUIRE(*decodedNotify == notify);
+    REQUIRE(decodedNotify->QuestContent.IsValid());
 }
 
 TEST_CASE("Quest objective updates preserve objective state", "[encoding.quest_update]")
@@ -845,7 +847,8 @@ TEST_CASE("Quest objective updates preserve objective state", "[encoding.quest_u
     request.Id = GameId{2, 0x1234};
     request.Stage = 12;
     request.Status = RequestQuestUpdate::ObjectiveUpdate;
-    request.ClientQuestType = QuestLog::ObjectiveDisplayed | QuestLog::ObjectiveCompleted;
+    request.ClientQuestType = QuestLog::ObjectiveDisplayed | QuestLog::ObjectiveCompleted | QuestLog::EncodeClientQuestFlags(QuestLog::QuestCompleted);
+    REQUIRE(QuestLog::DecodeClientQuestFlags(request.ClientQuestType) == QuestLog::QuestCompleted);
 
     Buffer requestBuffer(1000);
     Buffer::Writer requestWriter(&requestBuffer);
@@ -883,6 +886,7 @@ TEST_CASE("Quest log updates replace duplicate entries", "[encoding.quest_log]")
 
     REQUIRE(questLog.SetStage(questId, 20));
     REQUIRE(questLog.SetObjectiveState(questId, 4, QuestLog::ObjectiveDisplayed));
+    REQUIRE(questLog.SetQuestFlags(questId, QuestLog::QuestCompleted));
     REQUIRE_FALSE(questLog.SetStage(questId, 20));
     REQUIRE(questLog.SetStage(questId, 45));
 
@@ -891,6 +895,7 @@ TEST_CASE("Quest log updates replace duplicate entries", "[encoding.quest_log]")
     REQUIRE(questLog.Entries.front().Stage == 45);
     REQUIRE(questLog.Entries.front().Objectives.size() == 1);
     REQUIRE(questLog.Entries.front().Objectives.front().Flags == QuestLog::ObjectiveDisplayed);
+    REQUIRE(questLog.Entries.front().StateFlags == QuestLog::QuestCompleted);
 
     questLog.Remove(questId);
     questLog.Remove(questId);
@@ -909,9 +914,12 @@ TEST_CASE("Quest objective states validate and replace duplicate indices", "[enc
     REQUIRE(questLog.SetObjectiveState(questId, 4, QuestLog::ObjectiveDisplayed | QuestLog::ObjectiveCompleted));
     REQUIRE_FALSE(questLog.SetObjectiveState(questId, 4, QuestLog::ObjectiveCompleted | QuestLog::ObjectiveFailed));
     REQUIRE_FALSE(questLog.SetObjectiveState(questId, 4, 0x80));
+    REQUIRE(questLog.SetQuestFlags(questId, QuestLog::QuestFailed | QuestLog::QuestStopped));
+    REQUIRE_FALSE(questLog.SetQuestFlags(questId, 0x80));
 
     REQUIRE(questLog.Entries.front().Objectives.size() == 1);
     REQUIRE(questLog.Entries.front().Objectives.front().Flags == (QuestLog::ObjectiveDisplayed | QuestLog::ObjectiveCompleted));
+    REQUIRE(questLog.Entries.front().StateFlags == (QuestLog::QuestFailed | QuestLog::QuestStopped));
 }
 
 TEST_CASE("Quest objective states round trip through quest log encoding", "[encoding.quest_log]")
@@ -919,6 +927,7 @@ TEST_CASE("Quest objective states round trip through quest log encoding", "[enco
     QuestLog sent{};
     const GameId questId{3, 0x5678};
     REQUIRE(sent.SetStage(questId, 40));
+    REQUIRE(sent.SetQuestFlags(questId, QuestLog::QuestFailed | QuestLog::QuestStopped));
     REQUIRE(sent.SetObjectiveState(questId, 12, QuestLog::ObjectiveDisplayed | QuestLog::ObjectiveCompleted));
     REQUIRE(sent.SetObjectiveState(questId, 30, QuestLog::ObjectiveFailed));
 
@@ -931,6 +940,21 @@ TEST_CASE("Quest objective states round trip through quest log encoding", "[enco
     received.Deserialize(reader);
 
     REQUIRE(received == sent);
+    REQUIRE(received.IsValid());
+}
+
+TEST_CASE("Quest log rejects invalid state flags", "[encoding.quest_log]")
+{
+    QuestLog questLog{};
+    questLog.Entries.push_back({GameId{3, 0x5678}, 40});
+    REQUIRE(questLog.IsValid());
+
+    questLog.Entries.front().StateFlags = 0x80;
+    REQUIRE_FALSE(questLog.IsValid());
+
+    questLog.Entries.front().StateFlags = QuestLog::QuestCompleted;
+    questLog.Entries.front().Objectives.push_back({12, 0x80});
+    REQUIRE_FALSE(questLog.IsValid());
 }
 
 TEST_CASE("Quest log updates stay within wire count", "[encoding.quest_log]")
