@@ -47,6 +47,7 @@
 #include <Structs/Vector2_NetQuantize.h>
 #include <Structs/GridCellCoords.h>
 #include <Structs/ActorValues.h>
+#include <Structs/Inventory.h>
 #include <Structs/ObjectData.h>
 #include <Structs/Movement.h>
 
@@ -1298,4 +1299,61 @@ TEST_CASE("StringCache", "[encoding.string_cache]")
 
         REQUIRE(update == recvUpdate);
     }
+}
+
+TEST_CASE("Inventory stacks distinguish different temporary enchantments", "[encoding.inventory]")
+{
+    Inventory::Entry original{};
+    original.BaseId = GameId{1, 0x1234};
+    original.Count = 1;
+    original.ExtraEnchantId = GameId{0, 0};
+    original.EnchantData.IsWeapon = true;
+
+    Inventory::EffectItem effect{};
+    effect.Magnitude = 12.5f;
+    effect.Area = 4;
+    effect.Duration = 8;
+    effect.RawCost = 3.25f;
+    effect.EffectId = GameId{1, 0x9ABC};
+    original.EnchantData.Effects.push_back(effect);
+
+    Inventory::Entry same = original;
+    same.Count = 2;
+    REQUIRE(original.CanBeMerged(same));
+
+    Inventory::Entry different = original;
+    different.EnchantData.Effects.front().Magnitude += 1.f;
+    REQUIRE_FALSE(original.CanBeMerged(different));
+    Inventory::Entry differentEffects = different;
+
+    different = original;
+    different.EnchantData.Effects.front().EffectId = GameId{1, 0xDEF0};
+    REQUIRE_FALSE(original.CanBeMerged(different));
+
+    different = original;
+    different.EnchantData.Effects.front().Area += 1;
+    REQUIRE_FALSE(original.CanBeMerged(different));
+
+    different = original;
+    different.EnchantData.Effects.front().Duration += 1;
+    REQUIRE_FALSE(original.CanBeMerged(different));
+
+    different = original;
+    different.EnchantData.Effects.front().RawCost += 1.f;
+    REQUIRE_FALSE(original.CanBeMerged(different));
+
+    different = original;
+    different.EnchantData.IsWeapon = false;
+    REQUIRE_FALSE(original.CanBeMerged(different));
+
+    Inventory inventory;
+    inventory.AddOrRemoveEntry(original);
+    inventory.AddOrRemoveEntry(same);
+    inventory.AddOrRemoveEntry(differentEffects);
+    inventory.AddOrRemoveEntry(different);
+
+    REQUIRE(inventory.Entries.size() == 3);
+    REQUIRE(inventory.Entries[0].Count == 3);
+    REQUIRE(inventory.Entries[1].Count == 1);
+    REQUIRE(inventory.Entries[2].Count == 1);
 }

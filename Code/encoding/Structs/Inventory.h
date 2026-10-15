@@ -16,6 +16,11 @@ struct Inventory
         float RawCost{};
         GameId EffectId{};
 
+        bool operator==(const EffectItem& acRhs) const noexcept
+        {
+            return Magnitude == acRhs.Magnitude && Area == acRhs.Area && Duration == acRhs.Duration && RawCost == acRhs.RawCost && EffectId == acRhs.EffectId;
+        }
+
         void Serialize(TiltedPhoques::Buffer::Writer& aWriter) const noexcept;
         void Deserialize(TiltedPhoques::Buffer::Reader& aReader) noexcept;
     };
@@ -71,7 +76,8 @@ struct Inventory
         {
             return ExtraCharge == acRhs.ExtraCharge && ExtraEnchantId == acRhs.ExtraEnchantId && ExtraEnchantCharge == acRhs.ExtraEnchantCharge &&
                    ExtraEnchantRemoveUnequip == acRhs.ExtraEnchantRemoveUnequip && ExtraHealth == acRhs.ExtraHealth && ExtraPoisonId == acRhs.ExtraPoisonId &&
-                   ExtraPoisonCount == acRhs.ExtraPoisonCount && ExtraSoulLevel == acRhs.ExtraSoulLevel && IsQuestItem == acRhs.IsQuestItem;
+                   ExtraPoisonCount == acRhs.ExtraPoisonCount && ExtraSoulLevel == acRhs.ExtraSoulLevel && IsQuestItem == acRhs.IsQuestItem &&
+                   EnchantData.IsWeapon == acRhs.EnchantData.IsWeapon && EnchantData.Effects == acRhs.EnchantData.Effects;
         }
 
         bool IsWorn() const noexcept { return ExtraWorn || ExtraWornLeft; }
