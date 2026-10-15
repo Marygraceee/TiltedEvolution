@@ -336,6 +336,17 @@ void CharacterService::OnActorRemoved(const ActorRemovedEvent& acEvent) noexcept
 void CharacterService::OnUpdate(const UpdateEvent& acUpdateEvent) noexcept
 {
     RunSpawnUpdates();
+    if (!m_pendingCharacterSpawns.empty() && m_transport.IsConnected())
+    {
+        PlayerCharacter* pPlayer = PlayerCharacter::Get();
+        if (pPlayer && pPlayer->GetParentCellEx() && (!pPlayer->GetWorldSpace() || TES::Get()))
+        {
+            auto pendingSpawns = std::move(m_pendingCharacterSpawns);
+            m_pendingCharacterSpawns.clear();
+            for (const auto& pendingSpawn : pendingSpawns)
+                OnCharacterSpawn(pendingSpawn.second);
+        }
+    }
     RunLocalUpdates();
     RunFactionsUpdates();
     RunRemoteUpdates();
@@ -346,6 +357,8 @@ void CharacterService::OnUpdate(const UpdateEvent& acUpdateEvent) noexcept
 
 void CharacterService::OnConnected(const ConnectedEvent& acConnectedEvent) const noexcept
 {
+    m_pendingCharacterSpawns.clear();
+
     // Go through all the forms that were previously detected
     auto view = m_world.view<FormIdComponent>(entt::exclude<ObjectComponent>);
     Vector<entt::entity> entities(view.begin(), view.end());
@@ -369,6 +382,8 @@ void CharacterService::OnConnected(const ConnectedEvent& acConnectedEvent) const
 
 void CharacterService::OnDisconnected(const DisconnectedEvent& acDisconnectedEvent) noexcept
 {
+    m_pendingCharacterSpawns.clear();
+
     auto remoteView = m_world.view<RemoteComponent>();
     for (auto entity : remoteView)
     {
@@ -426,6 +441,7 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
     }
 
     const auto cEntity = *itor;
+    m_pendingCharacterSpawns.erase(acMessage.ServerId);
     const bool isCancelled = view.get<WaitingForAssignmentComponent>(cEntity).Cancelled;
 
     m_world.remove<WaitingForAssignmentComponent>(cEntity);
@@ -548,22 +564,32 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
         return;
     }
 
-    PlayerCharacter* pPlayer = PlayerCharacter::Get();
-    if (!pPlayer)
+    auto remoteView = m_world.view<RemoteComponent>();
+    const auto remoteItor =
+        std::find_if(std::begin(remoteView), std::end(remoteView), [remoteView, Id = acMessage.ServerId](auto entity) { return remoteView.get<RemoteComponent>(entity).Id == Id; });
+
+    if (remoteItor != std::end(remoteView))
+    {
+        m_pendingCharacterSpawns.erase(acMessage.ServerId);
+        spdlog::warn("Character with remote id {:X} is already spawned.", acMessage.ServerId);
         return;
+    }
+
+    PlayerCharacter* pPlayer = PlayerCharacter::Get();
+    if (!pPlayer || !pPlayer->GetParentCellEx())
+    {
+        if (m_transport.IsConnected())
+        {
+            const auto pendingIt = m_pendingCharacterSpawns.find(acMessage.ServerId);
+            if (pendingIt == m_pendingCharacterSpawns.end() || pendingIt->second.OwnershipEpoch <= acMessage.OwnershipEpoch)
+                m_pendingCharacterSpawns.insert_or_assign(acMessage.ServerId, acMessage);
+        }
+        return;
+    }
 
     if (!IsSpawnWithinLoadedArea(m_world, *pPlayer, acMessage.CellId, acMessage.WorldSpaceId, acMessage.Position.x, acMessage.Position.y, acMessage.IsDragon))
     {
         spdlog::debug("Discarded spawn for actor {:X} because it is outside the current loaded area", acMessage.ServerId);
-        return;
-    }
-
-    auto remoteView = m_world.view<RemoteComponent>();
-    const auto remoteItor = std::find_if(std::begin(remoteView), std::end(remoteView), [remoteView, Id = acMessage.ServerId](auto entity) { return remoteView.get<RemoteComponent>(entity).Id == Id; });
-
-    if (remoteItor != std::end(remoteView))
-    {
-        spdlog::warn("Character with remote id {:X} is already spawned.", acMessage.ServerId);
         return;
     }
 
@@ -870,6 +896,8 @@ void CharacterService::OnOwnershipTransfer(const NotifyOwnershipTransfer& acMess
         return;
     }
 
+    m_pendingCharacterSpawns.erase(acMessage.ServerId);
+
     auto entity = Utils::FindEntityByServerId(acMessage.ServerId);
     if (entity && !m_world.any_of<LocalComponent, RemoteComponent>(*entity))
         entity.reset();
@@ -983,6 +1011,8 @@ void CharacterService::OnOwnershipTransfer(const NotifyOwnershipTransfer& acMess
 
 void CharacterService::OnRemoveCharacter(const NotifyRemoveCharacter& acMessage) const noexcept
 {
+    m_pendingCharacterSpawns.erase(acMessage.ServerId);
+
     auto view = m_world.view<RemoteComponent>();
 
     const auto itor = std::find_if(std::begin(view), std::end(view), [id = acMessage.ServerId, view](entt::entity entity) { return view.get<RemoteComponent>(entity).Id == id; });

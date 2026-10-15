@@ -1,6 +1,7 @@
 #pragma once
 #include "Structs/Inventory.h"
 #include "Structs/ActorData.h"
+#include <Messages/CharacterSpawnRequest.h>
 
 struct ActorAddedEvent;
 struct ActorRemovedEvent;
@@ -11,7 +12,6 @@ struct EquipmentChangeEvent;
 struct FormIdComponent;
 struct ActionEvent;
 struct AssignCharacterResponse;
-struct CharacterSpawnRequest;
 struct ServerReferencesMoveRequest;
 struct NotifyActionEvents;
 struct NotifyDrawWeapon;
@@ -135,6 +135,7 @@ private:
     Map<uint32_t, WeaponDrawData> m_weaponDrawUpdates{};
 
     mutable Set<entt::entity> m_pendingCellAssignments{};
+    mutable Map<uint32_t, CharacterSpawnRequest> m_pendingCharacterSpawns{};
 
     // Actor form ID -> pick form ID. The active stage lives in ActorExtension.
     // Written from const message handlers, drained by ProcessLeveledConforms.
