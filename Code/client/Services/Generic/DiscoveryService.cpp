@@ -110,9 +110,15 @@ void DiscoveryService::VisitExteriorCell(bool aForceTrigger) noexcept
             return;
         }
 
-        TESObjectCELL* pCell = pPlayer->GetParentCellEx();
+        TESObjectCELL* pCell = pPlayer->parentCell;
         if (!pCell)
             pCell = ModManager::Get()->GetCellFromCoordinates(gameCurrentGrid.X, gameCurrentGrid.Y, pWorldSpace, false);
+
+        if (!pCell)
+        {
+            spdlog::error("Failed to find cell at coordinates {}, {} in world space {:X}", gameCurrentGrid.X, gameCurrentGrid.Y, pWorldSpace->formID);
+            return;
+        }
 
         if (!m_world.GetModSystem().GetServerModId(pCell->formID, cellChangeEvent.CellId))
         {

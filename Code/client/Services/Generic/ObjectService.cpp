@@ -145,30 +145,19 @@ void ObjectService::OnCellChange(const CellChangeEvent& acEvent) noexcept
     if (!m_transport.IsConnected())
         return;
 
-    PlayerCharacter* pPlayer = PlayerCharacter::Get();
-    TESObjectCELL* pCell = pPlayer->parentCell;
-
-    GameId cellId{};
-    if (!m_world.GetModSystem().GetServerModId(pCell->formID, cellId))
-    {
-        spdlog::error("Server cell id not found for cell form id {:X}", pCell->formID);
-        return;
-    }
-
-    GameId worldSpaceId{};
-    if (TESWorldSpace* pWorldSpace = pPlayer->GetWorldSpace())
-    {
-        if (!m_world.GetModSystem().GetServerModId(pWorldSpace->formID, worldSpaceId))
-        {
-            spdlog::error("Server world space id not found for world space form id {:X}", pWorldSpace->formID);
-            return;
-        }
-    }
+    const uint32_t cellFormId = m_world.GetModSystem().GetGameId(acEvent.CellId);
+    TESObjectCELL* pCell = Cast<TESObjectCELL>(TESForm::GetById(cellFormId));
 
     AssignObjectsRequest request{};
-    request.CellId = cellId;
-    request.WorldSpaceId = worldSpaceId;
-    request.CurrentCoords = GridCellCoords::CalculateGridCellCoords(pPlayer->position.x, pPlayer->position.y);
+    request.CellId = acEvent.CellId;
+    request.WorldSpaceId = acEvent.WorldSpaceId;
+    request.CurrentCoords = acEvent.CurrentCoords;
+
+    if (!pCell)
+    {
+        m_transport.Send(request);
+        return;
+    }
 
     // Player homes should not be synced, so that chest contents,
     // which are often used as storage, are never accidentally wiped.
@@ -193,8 +182,8 @@ void ObjectService::OnCellChange(const CellChangeEvent& acEvent) noexcept
         }
 
         ObjectData objectData{};
-        objectData.CellId = cellId;
-        objectData.WorldSpaceId = worldSpaceId;
+        objectData.CellId = acEvent.CellId;
+        objectData.WorldSpaceId = acEvent.WorldSpaceId;
         objectData.CurrentCoords = GridCellCoords::CalculateGridCellCoords(pObject->position.x, pObject->position.y);
 
         if (!m_world.GetModSystem().GetServerModId(pObject->formID, objectData.Id))
