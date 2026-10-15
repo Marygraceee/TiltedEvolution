@@ -77,8 +77,15 @@ template <class T> void GameArray<T>::Resize(size_t aLength) noexcept
     else
     {
         T* pNewData = reinterpret_cast<T*>(Memory::Allocate(sizeof(T) * aLength));
-        std::copy(data, data + length, pNewData);
-        Memory::Free(data);
+        if (!pNewData)
+            return;
+
+        if (length != 0)
+            std::copy(data, data + length, pNewData);
+
+        if (data)
+            Memory::Free(data);
+
         data = pNewData;
         capacity = length = aLength;
     }

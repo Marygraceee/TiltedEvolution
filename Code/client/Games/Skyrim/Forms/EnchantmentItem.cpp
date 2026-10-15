@@ -16,6 +16,9 @@ EnchantmentItem* EnchantmentItem::Create(const Inventory::EnchantmentData& aData
 
     GameArray<EffectItem> effects{};
     effects.Resize(aData.Effects.size());
+    if (effects.length != aData.Effects.size())
+        return nullptr;
+
     for (int i = 0; i < aData.Effects.size(); i++)
     {
         Inventory::EffectItem effect = aData.Effects[i];
