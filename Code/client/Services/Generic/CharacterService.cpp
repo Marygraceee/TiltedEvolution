@@ -1727,6 +1727,9 @@ Actor* CharacterService::CreateCharacterForEntity(entt::entity aEntity) const no
     if (pActor->IsDead() != acMessage.IsDead)
         acMessage.IsDead ? pActor->Kill() : pActor->Respawn();
 
+    if (acMessage.IsPlayerSummon)
+        pActor->SetCommandingActor(PlayerCharacter::Get()->GetHandle());
+
     spdlog::info("Spawned character for entity, server id: {:X}", remoteComponent.Id);
 
     return pActor;
