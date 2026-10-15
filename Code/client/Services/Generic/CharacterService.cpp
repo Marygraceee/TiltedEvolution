@@ -666,7 +666,7 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
 
     pActor->rotation.x = acMessage.Rotation.x;
     pActor->rotation.z = acMessage.Rotation.y;
-    pActor->MoveTo(pPlayer->parentCell, acMessage.Position);
+    MoveActor(pActor, acMessage.WorldSpaceId, acMessage.CellId, acMessage.Position);
     pActor->SetActorValues(acMessage.InitialActorValues);
 
     pActor->GetExtension()->SetPlayer(acMessage.IsPlayer);
@@ -1359,7 +1359,7 @@ void CharacterService::OnPartyJoinedEvent(const PartyJoinedEvent& acEvent) noexc
     }
 }
 
-void CharacterService::MoveActor(const Actor* apActor, const GameId& acWorldSpaceId, const GameId& acCellId, const Vector3_NetQuantize& acPosition) const noexcept
+void CharacterService::MoveActor(const Actor* apActor, const GameId& acWorldSpaceId, const GameId& acCellId, const glm::vec3& acPosition) const noexcept
 {
     TESObjectCELL* pCell = nullptr;
     if (!acWorldSpaceId)
@@ -1374,7 +1374,7 @@ void CharacterService::MoveActor(const Actor* apActor, const GameId& acWorldSpac
         TESWorldSpace* const pWorldSpace = Cast<TESWorldSpace>(TESForm::GetById(cWorldSpaceId));
         if (pWorldSpace)
         {
-            GridCellCoords coordinates = GridCellCoords::CalculateGridCellCoords(acPosition);
+            GridCellCoords coordinates = GridCellCoords::CalculateGridCellCoords(acPosition.x, acPosition.y);
             pCell = pWorldSpace->LoadCell(coordinates.X, coordinates.Y);
         }
     }
@@ -1713,7 +1713,7 @@ Actor* CharacterService::CreateCharacterForEntity(entt::entity aEntity) const no
     pActor->GetExtension()->SetRemote(true);
     pActor->rotation.x = acMessage.Rotation.x;
     pActor->rotation.z = acMessage.Rotation.y;
-    pActor->MoveTo(PlayerCharacter::Get()->parentCell, pInterpolationComponent->Position);
+    MoveActor(pActor, acMessage.WorldSpaceId, acMessage.CellId, pInterpolationComponent->Position);
     pActor->SetActorValues(acMessage.InitialActorValues);
 
     pActor->GetExtension()->SetPlayer(acMessage.IsPlayer);
@@ -2132,7 +2132,7 @@ void CharacterService::RunSpawnUpdates() const noexcept
             remoteComponent.CachedRefId = pActor->formID;
         }
 
-        pActor->MoveTo(pPlayer->parentCell, interpolationComponent.Position);
+        MoveActor(pActor, spawnRequest.WorldSpaceId, spawnRequest.CellId, interpolationComponent.Position);
     }
 }
 
