@@ -717,11 +717,12 @@ TEST_CASE("Object assignment request encoding supports a full cell", "[encoding.
     REQUIRE(decoded->Objects.size() == 256);
 }
 
-TEST_CASE("Character spawn encoding preserves dragon range", "[encoding.character]")
+TEST_CASE("Character spawn encoding preserves worldspace and dragon range", "[encoding.character]")
 {
     CharacterSpawnRequest request{};
     request.ServerId = 17;
     request.OwnershipEpoch = 2;
+    request.WorldSpaceId = GameId{4, 0x1234};
     request.IsDragon = true;
 
     Buffer buff(10000);
@@ -735,6 +736,7 @@ TEST_CASE("Character spawn encoding preserves dragon range", "[encoding.characte
 
     auto decoded = CastUnique<CharacterSpawnRequest>(std::move(message));
     REQUIRE(decoded->IsDragon);
+    REQUIRE(decoded->WorldSpaceId == request.WorldSpaceId);
     REQUIRE(*decoded == request);
 }
 

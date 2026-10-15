@@ -115,6 +115,13 @@ void CharacterService::Serialize(World& aRegistry, entt::entity aEntity, Charact
         apSpawnRequest->BaseId = characterComponent.BaseId.Id;
     }
 
+    const auto* pCellIdComponent = aRegistry.try_get<CellIdComponent>(aEntity);
+    if (pCellIdComponent)
+    {
+        apSpawnRequest->WorldSpaceId = pCellIdComponent->WorldSpaceId;
+        apSpawnRequest->CellId = pCellIdComponent->Cell;
+    }
+
     if (characterComponent.LeveledNpcPickId)
     {
         apSpawnRequest->LeveledNpcPickId = characterComponent.LeveledNpcPickId.Id;
@@ -126,12 +133,6 @@ void CharacterService::Serialize(World& aRegistry, entt::entity aEntity, Charact
         apSpawnRequest->Position = pMovementComponent->Position;
         apSpawnRequest->Rotation.x = pMovementComponent->Rotation.x;
         apSpawnRequest->Rotation.y = pMovementComponent->Rotation.z;
-    }
-
-    const auto* pCellIdComponent = aRegistry.try_get<CellIdComponent>(aEntity);
-    if (pCellIdComponent)
-    {
-        apSpawnRequest->CellId = pCellIdComponent->Cell;
     }
 
     auto& animationComponent = aRegistry.get<AnimationComponent>(aEntity);

@@ -517,6 +517,20 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
         return;
     }
 
+    PlayerCharacter* pPlayer = PlayerCharacter::Get();
+    if (!pPlayer)
+        return;
+
+    GameId playerWorldSpaceId{};
+    if (TESWorldSpace* pWorldSpace = pPlayer->GetWorldSpace(); pWorldSpace && !m_world.GetModSystem().GetServerModId(pWorldSpace->formID, playerWorldSpaceId))
+        return;
+
+    if (playerWorldSpaceId != acMessage.WorldSpaceId)
+    {
+        spdlog::debug("Discarded spawn for actor {:X} because it belongs to another worldspace", acMessage.ServerId);
+        return;
+    }
+
     auto remoteView = m_world.view<RemoteComponent>();
     const auto remoteItor = std::find_if(std::begin(remoteView), std::end(remoteView), [remoteView, Id = acMessage.ServerId](auto entity) { return remoteView.get<RemoteComponent>(entity).Id == Id; });
 
@@ -627,7 +641,7 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
 
     pActor->rotation.x = acMessage.Rotation.x;
     pActor->rotation.z = acMessage.Rotation.y;
-    pActor->MoveTo(PlayerCharacter::Get()->parentCell, acMessage.Position);
+    pActor->MoveTo(pPlayer->parentCell, acMessage.Position);
     pActor->SetActorValues(acMessage.InitialActorValues);
 
     pActor->GetExtension()->SetPlayer(acMessage.IsPlayer);
@@ -2083,6 +2097,9 @@ void CharacterService::RunSpawnUpdates() const noexcept
             const TES* pTES = TES::Get();
             const auto playerCoords = GridCellCoords(pTES->centerGridX, pTES->centerGridY);
             const auto& spawnRequest = invisibleView.get<WaitingFor3D>(entity).SpawnRequest;
+            GameId playerWorldSpaceId{};
+            if (!m_world.GetModSystem().GetServerModId(pWorldSpace->formID, playerWorldSpaceId) || playerWorldSpaceId != spawnRequest.WorldSpaceId)
+                continue;
 
             // TODO(cosideci): IsDragon probably shouldn't be straight up false here.
             if (GridCellCoords::IsCellInGridCell(characterCoords, playerCoords, spawnRequest.IsDragon))
