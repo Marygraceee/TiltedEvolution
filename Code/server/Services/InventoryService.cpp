@@ -297,11 +297,11 @@ void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChan
                 [&message](const Inventory::Entry& acEntry) { return acEntry.BaseId == message.Item.BaseId && acEntry.IsExtraDataEqualsIgnoringWorn(message.Item); });
         }
 
-        if (storedEntry != inventoryComponent.Content.Entries.end())
-        {
-            inventoryChange.ExtraWorn = storedEntry->ExtraWorn;
-            inventoryChange.ExtraWornLeft = storedEntry->ExtraWornLeft;
-        }
+        if (storedEntry == inventoryComponent.Content.Entries.end() || storedEntry->Count < -message.Item.Count)
+            return;
+
+        inventoryChange.ExtraWorn = storedEntry->ExtraWorn;
+        inventoryChange.ExtraWornLeft = storedEntry->ExtraWornLeft;
     }
 
     inventoryComponent.Content.AddOrRemoveEntry(inventoryChange);
