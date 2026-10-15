@@ -174,15 +174,15 @@ BSTEventResult QuestService::OnEvent(const TESQuestStartStopEvent* apEvent, cons
             auto& modSys = m_world.GetModSystem();
             if (modSys.GetServerModId(pQuest->formID, Id))
             {
-                spdlog::info(__FUNCTION__ ": queuing type none/misc quest gameId {:X} questStage {} questStatus {} questType {} formId {:X} name {}",
-                             Id.LogFormat(),  pQuest->currentStage, pQuest->IsStopped() ? RequestQuestUpdate::Stopped : RequestQuestUpdate::Started,
-                             static_cast<std::underlying_type_t<TESQuest::Type>>(pQuest->type), 
-                             pQuest->formID, pQuest->fullName.value.AsAscii());
+                spdlog::info(
+                    __FUNCTION__ ": queuing type none/misc quest gameId {:X} questStage {} questStatus {} questType {} formId {:X} name {}", Id.LogFormat(), pQuest->currentStage,
+                    apEvent->started ? RequestQuestUpdate::Started : RequestQuestUpdate::Stopped, static_cast<std::underlying_type_t<TESQuest::Type>>(pQuest->type), pQuest->formID,
+                    pQuest->fullName.value.AsAscii());
             }
         }
-        
+
         m_world.GetRunner().Queue(
-            [&, formId = pQuest->formID, stageId = pQuest->currentStage, stopped = pQuest->IsStopped(), type = pQuest->type]()
+            [&, formId = pQuest->formID, stageId = pQuest->currentStage, started = apEvent->started, type = pQuest->type]()
             {
                 GameId Id;
                 auto& modSys = m_world.GetModSystem();
@@ -191,12 +191,12 @@ BSTEventResult QuestService::OnEvent(const TESQuestStartStopEvent* apEvent, cons
                     RequestQuestUpdate update;
                     update.Id = Id;
                     update.Stage = stageId;
-                    update.Status = stopped ? RequestQuestUpdate::Stopped : RequestQuestUpdate::Started;
+                    update.Status = started ? RequestQuestUpdate::Started : RequestQuestUpdate::Stopped;
                     update.ClientQuestType = static_cast<std::underlying_type_t<TESQuest::Type>>(type); 
 
                     m_world.GetTransport().Send(update);
 
-                    if (!stopped)
+                    if (started)
                     {
                         auto* currentQuest = Cast<TESQuest>(TESForm::GetById(formId));
                         if (currentQuest)
