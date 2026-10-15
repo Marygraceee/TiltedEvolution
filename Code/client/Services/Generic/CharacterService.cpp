@@ -694,7 +694,7 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
 
     pActor->rotation.x = acMessage.Rotation.x;
     pActor->rotation.z = acMessage.Rotation.y;
-    MoveActor(pActor, acMessage.WorldSpaceId, acMessage.CellId, acMessage.Position);
+    const bool movedToCell = MoveActor(pActor, acMessage.WorldSpaceId, acMessage.CellId, acMessage.Position);
     pActor->SetActorValues(acMessage.InitialActorValues);
 
     pActor->GetExtension()->SetPlayer(acMessage.IsPlayer);
@@ -727,7 +727,7 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
 
     AnimationSystem::Setup(m_world, *entity);
 
-    m_world.emplace_or_replace<WaitingFor3D>(*entity, acMessage);
+    m_world.emplace_or_replace<WaitingFor3D>(*entity, acMessage, !movedToCell);
 
     auto& remoteAnimationComponent = m_world.get<RemoteAnimationComponent>(*entity);
 
@@ -1391,7 +1391,7 @@ void CharacterService::OnPartyJoinedEvent(const PartyJoinedEvent& acEvent) noexc
     }
 }
 
-void CharacterService::MoveActor(const Actor* apActor, const GameId& acWorldSpaceId, const GameId& acCellId, const glm::vec3& acPosition) const noexcept
+bool CharacterService::MoveActor(const Actor* apActor, const GameId& acWorldSpaceId, const GameId& acCellId, const glm::vec3& acPosition) const noexcept
 {
     TESObjectCELL* pCell = nullptr;
     if (!acWorldSpaceId)
@@ -1414,10 +1414,11 @@ void CharacterService::MoveActor(const Actor* apActor, const GameId& acWorldSpac
     if (!pCell)
     {
         spdlog::error(__FUNCTION__ ": failed to fetch cell to teleport, actor: {:X}, worldspace: {:X}, cell: {:X}, position: {}, {}, {}", apActor->formID, acWorldSpaceId.BaseId, acCellId.BaseId, acPosition.x, acPosition.y, acPosition.z);
-        return;
+        return false;
     }
 
     apActor->MoveTo(pCell, acPosition);
+    return true;
 }
 
 void CharacterService::ProcessNewEntity(entt::entity aEntity) const noexcept
@@ -2081,6 +2082,9 @@ void CharacterService::RunRemoteUpdates() noexcept
         auto& formIdComponent = waitingView.get<FormIdComponent>(entity);
         auto& waitingFor3D = waitingView.get<WaitingFor3D>(entity);
 
+        if (waitingFor3D.NeedsCellMove)
+            continue;
+
         Actor* pActor = Cast<Actor>(TESForm::GetById(formIdComponent.Id));
         if (!pActor || !pActor->GetNiNode())
             continue;
@@ -2171,7 +2175,8 @@ void CharacterService::RunSpawnUpdates() const noexcept
     {
         auto& remoteComponent = m_world.get<RemoteComponent>(entity);
         auto& interpolationComponent = m_world.get<InterpolationComponent>(entity);
-        const auto& spawnRequest = invisibleView.get<WaitingFor3D>(entity).SpawnRequest;
+        auto& waitingFor3D = invisibleView.get<WaitingFor3D>(entity);
+        const auto& spawnRequest = waitingFor3D.SpawnRequest;
         // TODO(cosideci): IsDragon probably shouldn't be straight up false here.
         if (!IsSpawnWithinLoadedArea(
                 m_world, *pPlayer, spawnRequest.CellId, spawnRequest.WorldSpaceId, interpolationComponent.Position.x, interpolationComponent.Position.y, spawnRequest.IsDragon))
@@ -2187,7 +2192,28 @@ void CharacterService::RunSpawnUpdates() const noexcept
             remoteComponent.CachedRefId = pActor->formID;
         }
 
-        MoveActor(pActor, spawnRequest.WorldSpaceId, spawnRequest.CellId, interpolationComponent.Position);
+        waitingFor3D.NeedsCellMove = !MoveActor(pActor, spawnRequest.WorldSpaceId, spawnRequest.CellId, interpolationComponent.Position);
+    }
+
+    auto identifiedView = m_world.view<FormIdComponent, RemoteComponent, InterpolationComponent, RemoteAnimationComponent, WaitingFor3D>();
+    Vector<entt::entity> identifiedEntities(identifiedView.begin(), identifiedView.end());
+    for (const entt::entity entity : identifiedEntities)
+    {
+        auto& waitingFor3D = identifiedView.get<WaitingFor3D>(entity);
+        if (!waitingFor3D.NeedsCellMove)
+            continue;
+
+        const auto& interpolationComponent = identifiedView.get<InterpolationComponent>(entity);
+        const auto& spawnRequest = waitingFor3D.SpawnRequest;
+        if (!IsSpawnWithinLoadedArea(
+                m_world, *pPlayer, spawnRequest.CellId, spawnRequest.WorldSpaceId, interpolationComponent.Position.x, interpolationComponent.Position.y, spawnRequest.IsDragon))
+            continue;
+
+        auto* pActor = Cast<Actor>(TESForm::GetById(identifiedView.get<FormIdComponent>(entity).Id));
+        if (!pActor)
+            continue;
+
+        waitingFor3D.NeedsCellMove = !MoveActor(pActor, spawnRequest.WorldSpaceId, spawnRequest.CellId, interpolationComponent.Position);
     }
 }
 

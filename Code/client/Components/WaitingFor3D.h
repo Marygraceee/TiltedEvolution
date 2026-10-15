@@ -8,10 +8,12 @@
 
 struct WaitingFor3D
 {
-    WaitingFor3D(const CharacterSpawnRequest& aSpawnRequest)
+    WaitingFor3D(const CharacterSpawnRequest& aSpawnRequest, const bool aNeedsCellMove = false)
         : SpawnRequest(aSpawnRequest)
+        , NeedsCellMove(aNeedsCellMove)
     {
     }
 
     CharacterSpawnRequest SpawnRequest{};
+    bool NeedsCellMove{};
 };
